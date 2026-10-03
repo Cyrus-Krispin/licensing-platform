@@ -61,3 +61,15 @@ test('API failure propagates instead of pretending success', async () => {
   const f = fixture(); f.github.rest.issues.createComment = async () => { throw new Error('API unavailable'); };
   await assert.rejects(dispatch(f), /API unavailable/); assert.deepEqual(f.calls.map(call => call[0]), ['add']);
 });
+
+test('old dispatch marker cannot reacquire a slot while another issue is active', async () => {
+  const f = fixture({ active: [{ number: 2 }], comments: [{ user: { login: 'github-actions[bot]' }, body: '<!-- codex-cloud-dispatch:v1 -->' }] });
+  await dispatch(f); assert.deepEqual(f.calls.map(call => call[0]), ['failed']);
+});
+
+test('read-only proof cannot implement and does not take an implementation slot', async () => {
+  const f = fixture({ active: [{ number: 2 }], labels: [{ name: 'codex:ready' }, { name: 'codex:read-only' }] });
+  await dispatch(f); assert.deepEqual(f.calls.map(call => call[0]), ['comment', 'remove']);
+  assert.match(f.calls[0][1].body, /READ-ONLY/);
+  assert.match(f.calls[0][1].body, /Do not modify files/);
+});
