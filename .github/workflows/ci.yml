@@ -71,14 +71,53 @@ jobs:
           -Dspring.datasource.url=jdbc:postgresql://localhost:5432/licensing_test
           -Dspring.datasource.username=test
           -Dspring.datasource.password="$DATABASE_PASSWORD"
+      - name: Stage packaged JAR for rootfs scanning
+        run: |
+          mkdir -p backend/target/trivy-rootfs
+          cp backend/target/backend-0.1.0.jar backend/target/trivy-rootfs/
       - name: Scan packaged backend dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          scan-type: fs
-          scan-ref: backend/target/backend-0.1.0.jar
+          scan-type: rootfs
+          scan-ref: backend/target/trivy-rootfs
           scanners: vuln
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          format: json
+          output: backend/target/trivy-packaged.json
+          list-all-pkgs: true
+          exit-code: "0"
+      - name: Verify packaged backend inventory and findings
+        run: |
+          report=backend/target/trivy-packaged.json
+          java_packages=$(jq '[.Results[]?.Packages[]? | select(.Identifier.PURL? | startswith("pkg:maven/"))] | length' "$report")
+          test "$java_packages" -gt 0 || { echo "Trivy found no Java packages in the packaged JAR" >&2; exit 1; }
+          for package in \
+            'pkg:maven/org.springframework.boot/spring-boot-actuator@3.5.16' \
+            'pkg:maven/org.postgresql/postgresql@42.7.12' \
+            'pkg:maven/com.fasterxml.jackson.core/jackson-core@2.21.7' \
+            'pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.7' \
+            'pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.59'; do
+            jq --exit-status --arg package "$package" \
+              'any(.Results[]?.Packages[]?; .Identifier.PURL? == $package)' "$report" >/dev/null || {
+                echo "Expected packaged dependency is missing: $package" >&2
+                exit 1
+              }
+          done
+          vulnerabilities=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$report")
+          test "$vulnerabilities" -eq 0 || {
+            echo "Trivy found $vulnerabilities high/critical packaged dependency vulnerabilities" >&2
+            jq -r '.Results[]?.Vulnerabilities[]? | "\(.Severity) \(.VulnerabilityID) \(.PkgName) \(.InstalledVersion)"' "$report"
+            exit 1
+          }
+          echo "Verified $java_packages packaged Java dependencies and no high/critical findings"
+      - name: Upload packaged dependency inventory
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: backend-packaged-dependency-inventory
+          path: backend/target/trivy-packaged.json
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: backend-jacoco
@@ -107,7 +146,7 @@ jobs:
           sudo install gitleaks /usr/local/bin/gitleaks
       - name: Scan full Git history
         run: gitleaks git --redact --verbose .
-      - name: Scan npm and Maven dependency manifests
+      - name: Scan declared npm and Maven manifest data
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -115,6 +154,8 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "1"
+      - name: Explain source manifest scan boundary
+        run: echo "Source manifest scanning covers declared lockfile/POM data; the backend job separately scans packaged JAR transitives with Trivy rootfs."
 
   compose:
     name: Compose security and browser smoke
@@ -147,19 +188,53 @@ jobs:
         working-directory: frontend
         run: npx playwright test
       - name: Scan backend image
+        id: backend-image-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: licensing-platform-backend:local
           severity: CRITICAL,HIGH
+          format: json
+          output: trivy-backend-image.json
+          list-all-pkgs: true
           exit-code: "1"
       - name: Scan frontend image
+        if: ${{ always() }}
+        id: frontend-image-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: licensing-platform-frontend:local
           severity: CRITICAL,HIGH
+          format: json
+          output: trivy-frontend-image.json
+          list-all-pkgs: true
           exit-code: "1"
+      - name: Verify both image scan inventories
+        if: ${{ always() }}
+        run: |
+          failed=0
+          for image in backend frontend; do
+            report="trivy-$image-image.json"
+            if ! test -s "$report"; then
+              echo "Missing Trivy inventory for $image image" >&2
+              failed=1
+              continue
+            fi
+            packages=$(jq '[.Results[]?.Packages[]?] | length' "$report")
+            if test "$packages" -eq 0; then
+              echo "Trivy found no packages in $image image" >&2
+              failed=1
+            else
+              echo "Trivy inventoried $packages packages in $image image"
+            fi
+            vulnerabilities=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$report")
+            if test "$vulnerabilities" -ne 0; then
+              echo "Trivy found $vulnerabilities high/critical vulnerabilities in $image image" >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
       - name: Capture bounded failure logs
         if: failure()
         run: docker compose logs --no-color --tail=500 > compose.log
@@ -171,6 +246,8 @@ jobs:
             frontend/playwright-report
             frontend/test-results
             compose.log
+            trivy-backend-image.json
+            trivy-frontend-image.json
           retention-days: 7
           if-no-files-found: warn
       - if: always()
