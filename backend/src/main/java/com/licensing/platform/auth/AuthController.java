@@ -25,7 +25,10 @@ public class AuthController {
 
     @GetMapping("/workspaces/operator")
     Map<String, String> operator(Principal principal) {
-        return workspace("Operator workspace", "Start an application in a later product slice.", principal);
+        return workspace(
+                "Operator workspace",
+                "Create an application or continue one of your saved drafts.",
+                principal);
     }
 
     @GetMapping("/workspaces/officer")

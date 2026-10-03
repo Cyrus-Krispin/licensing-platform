@@ -14,6 +14,41 @@ async function responseError(
   return new Error(fallback);
 }
 
+export type Draft = {
+  id: string; revision: number; status: "DRAFT"; updatedAt: string;
+  legalName: string | null; tradingName: string | null;
+  registrationNumber: string | null; structure: string | null;
+  applicantName: string | null; applicantRole: string | null;
+  applicantEmail: string | null; applicantPhone: string | null;
+};
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public fieldErrors: Record<string, string> = {}) { super(message); }
+}
+async function draftResponse(response: Response): Promise<Draft> {
+  if (response.ok) return response.json();
+  const body = await response.json().catch(() => ({}));
+  throw new ApiError(body.message ?? "The draft could not be saved", response.status, body.fieldErrors);
+}
+async function csrfRequest(path: string, init: RequestInit): Promise<Response> {
+  const csrf = await getCsrf();
+  return fetch(path, { ...init, headers: { "Content-Type": "application/json", [csrf.headerName]: csrf.token, ...init.headers } });
+}
+export async function listDrafts(): Promise<Draft[]> {
+  const response = await fetch("/api/applications");
+  if (!response.ok) throw await responseError(response, "Drafts could not be loaded");
+  return response.json();
+}
+export async function getDraft(id: string): Promise<Draft> {
+  const response = await fetch(`/api/applications/${id}`);
+  return draftResponse(response);
+}
+export async function createDraft(key: string): Promise<Draft> {
+  return draftResponse(await csrfRequest("/api/applications", { method: "POST", headers: { "Idempotency-Key": key }, body: "{}" }));
+}
+export async function saveDraft(id: string, revision: number, fields: Record<string, string | null>): Promise<Draft> {
+  return draftResponse(await csrfRequest(`/api/applications/${id}/draft`, { method: "PATCH", body: JSON.stringify({ expectedRevision: revision, fields }) }));
+}
+
 export async function getCsrf(): Promise<Csrf> {
   const response = await fetch("/api/auth/csrf");
   if (!response.ok)
