@@ -1,0 +1,10 @@
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+backend/target/
+.env
+.DS_Store
+
+*.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
