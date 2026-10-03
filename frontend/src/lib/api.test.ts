@@ -1,5 +1,12 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { createDraft, listDrafts, login, logout, saveDraft } from "./api";
+import {
+  createDraft,
+  getDraft,
+  listDrafts,
+  login,
+  logout,
+  saveDraft,
+} from "./api";
 
 beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 
@@ -109,6 +116,9 @@ test("lists, creates, and saves drafts with fresh CSRF", async () => {
   const draft={id:"d1",revision:0,status:"DRAFT"};
   vi.mocked(fetch).mockResolvedValueOnce(json([draft]));
   await expect(listDrafts()).resolves.toEqual([draft]);
+  vi.mocked(fetch).mockResolvedValueOnce(json(draft));
+  await expect(getDraft("d1")).resolves.toEqual(draft);
+  expect(fetch).toHaveBeenLastCalledWith("/api/applications/d1");
   vi.mocked(fetch).mockResolvedValueOnce(json({token:"a",headerName:"X-XSRF-TOKEN"})).mockResolvedValueOnce(json(draft,201));
   await expect(createDraft("retry-key")).resolves.toEqual(draft);
   expect(fetch).toHaveBeenLastCalledWith("/api/applications",expect.objectContaining({method:"POST",headers:expect.objectContaining({"Idempotency-Key":"retry-key","X-XSRF-TOKEN":"a"})}));

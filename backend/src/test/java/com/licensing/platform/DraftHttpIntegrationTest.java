@@ -10,7 +10,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -111,6 +116,12 @@ class DraftHttpIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("stale_revision"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Reload")));
+        operator.perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":0,\"fields\":null}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("stale_revision"));
 
         Client officer = new Client();
         officer.login("officer");
@@ -122,6 +133,179 @@ class DraftHttpIntegrationTest {
                 .perform(get("/api/applications/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("not_found"));
+        otherOwner
+                .perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":1,\"fields\":{\"legalName\":\"No\"}}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("not_found"));
+    }
+
+    @Test
+    void validatesEveryDraftFieldAndStrictRequestShapeAtomically() throws Exception {
+        Client operator = new Client();
+        operator.login("operator");
+        List<Map.Entry<String, String>> invalidFields =
+                List.of(
+                        Map.entry("legalName", ""),
+                        Map.entry("legalName", "x".repeat(201)),
+                        Map.entry("applicantName", ""),
+                        Map.entry("applicantName", "x".repeat(121)),
+                        Map.entry("registrationNumber", "AB"),
+                        Map.entry("registrationNumber", "bad value!"),
+                        Map.entry("structure", "CHARITY"),
+                        Map.entry("applicantRole", "AGENT"),
+                        Map.entry("applicantEmail", "a@b..c"),
+                        Map.entry("applicantEmail", "x".repeat(249) + "@x.test"),
+                        Map.entry("applicantPhone", "+1 (23)-45"),
+                        Map.entry("applicantPhone", "+12 345 678 901 234 567"));
+        for (Map.Entry<String, String> invalid : invalidFields) {
+            operator.perform(
+                            write(
+                                            post("/api/applications"),
+                                            objectMapper.writeValueAsString(
+                                                    Map.of(invalid.getKey(), invalid.getValue())))
+                                    .header("Idempotency-Key", UUID.randomUUID().toString()))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.error").value("validation_failed"))
+                    .andExpect(jsonPath("$.fieldErrors." + invalid.getKey()).exists());
+        }
+
+        operator.perform(
+                        write(post("/api/applications"), "{\"legalName\":42}")
+                                .header("Idempotency-Key", "invalid-type"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.legalName").value("Must be text or null"));
+        operator.perform(
+                        write(post("/api/applications"), "{\"unknown\":\"value\"}")
+                                .header("Idempotency-Key", "unknown-field"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.unknown").value("Unknown field"));
+
+        MvcResult created =
+                operator.perform(
+                                write(
+                                                post("/api/applications"),
+                                                "{\"legalName\":\"Original\",\"tradingName\":\" \","
+                                                        + "\"applicantEmail\":\"name@example.test\","
+                                                        + "\"applicantPhone\":\"+1 (234) 567-8901\"}")
+                                        .header("Idempotency-Key", "valid-boundaries"))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.tradingName").value(org.hamcrest.Matchers.nullValue()))
+                        .andReturn();
+        JsonNode draft = objectMapper.readTree(created.getResponse().getContentAsString());
+        String id = draft.get("id").asText();
+        String createdAt = draft.get("updatedAt").asText();
+
+        operator.perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":1,\"fields\":{"
+                                        + "\"legalName\":\"Must roll back\","
+                                        + "\"registrationNumber\":\"!\"}}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.registrationNumber").exists());
+        operator.perform(get("/api/applications/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legalName").value("Original"))
+                .andExpect(jsonPath("$.revision").value(1));
+
+        operator.perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":1,\"fields\":{\"applicantName\":\"Owner\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legalName").value("Original"))
+                .andExpect(jsonPath("$.applicantName").value("Owner"))
+                .andExpect(jsonPath("$.updatedAt").value(org.hamcrest.Matchers.not(createdAt)));
+
+        operator.perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":\"1\",\"fields\":{}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"))
+                .andExpect(jsonPath("$.message").value("expectedRevision must be a non-negative integer"));
+        operator.perform(
+                        write(
+                                patch("/api/applications/{id}/draft", id),
+                                "{\"expectedRevision\":2,\"fields\":{},\"extra\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"))
+                .andExpect(jsonPath("$.message").value("Unknown request properties: extra"));
+    }
+
+    @Test
+    void parallelExpectedRevisionSavesHaveOneWinnerAndOneConflict() throws Exception {
+        Client operator = new Client();
+        operator.login("operator");
+        MvcResult created =
+                operator.perform(
+                                write(post("/api/applications"), "{}")
+                                        .header("Idempotency-Key", "parallel-save"))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+        String id = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+        String csrf = operator.freshCsrf();
+        Cookie[] cookies = operator.cookies.values().toArray(Cookie[]::new);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first =
+                    executor.submit(
+                            () -> concurrentSave(id, "First", csrf, cookies, ready, start));
+            var second =
+                    executor.submit(
+                            () -> concurrentSave(id, "Second", csrf, cookies, ready, start));
+            org.junit.jupiter.api.Assertions.assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            MvcResult firstResult = first.get(10, TimeUnit.SECONDS);
+            MvcResult secondResult = second.get(10, TimeUnit.SECONDS);
+            List<Integer> statuses =
+                    java.util.stream.Stream.of(firstResult, secondResult)
+                            .map(result -> result.getResponse().getStatus())
+                            .sorted()
+                            .toList();
+            org.junit.jupiter.api.Assertions.assertEquals(List.of(200, 409), statuses);
+            MvcResult conflict =
+                    firstResult.getResponse().getStatus() == 409 ? firstResult : secondResult;
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "stale_revision",
+                    objectMapper
+                            .readTree(conflict.getResponse().getContentAsString())
+                            .get("error")
+                            .asText());
+        }
+        operator.perform(get("/api/applications/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(1));
+    }
+
+    private MvcResult concurrentSave(
+            String id,
+            String name,
+            String csrf,
+            Cookie[] cookies,
+            CountDownLatch ready,
+            CountDownLatch start)
+            throws Exception {
+        ready.countDown();
+        start.await();
+        return mvc.perform(
+                        patch("/api/applications/{id}/draft", id)
+                                .cookie(cookies)
+                                .header("X-XSRF-TOKEN", csrf)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "expectedRevision",
+                                                        0,
+                                                        "fields",
+                                                        Map.of("legalName", name)))))
+                .andReturn();
     }
 
     private MockHttpServletRequestBuilder write(

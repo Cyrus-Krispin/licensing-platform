@@ -10,6 +10,10 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import * as api from "@/lib/api";
 
 const fieldNames = [
@@ -30,6 +34,7 @@ function OperatorDrafts() {
   const [status, setStatus] = useState("Loading your drafts…");
   const [pendingCreateKey, setPendingCreateKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const createInFlight = useRef(false);
 
   useEffect(() => {
@@ -68,6 +73,8 @@ function OperatorDrafts() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
+    if (saving) return;
+    setSaving(true);
     setStatus("Saving…");
     setErrors({});
     const data = new FormData(event.currentTarget);
@@ -89,11 +96,29 @@ function OperatorDrafts() {
     } catch (cause) {
       const failure = cause as api.ApiError;
       setErrors(failure.fieldErrors ?? {});
-      setStatus(
-        failure.status === 409
-          ? `${failure.message} Reload this page when you are ready; the values below are still here.`
-          : failure.message,
-      );
+      try {
+        const latest = await api.getDraft(draft.id);
+        setDraft((current) =>
+          current
+            ? {
+                ...current,
+                revision: latest.revision,
+                updatedAt: latest.updatedAt,
+              }
+            : current,
+        );
+        setStatus(
+          `${failure.message} The server has revision ${latest.revision}. ` +
+            "Your unsaved values remain below so you can compare them before retrying.",
+        );
+      } catch {
+        setStatus(
+          `${failure.message} The latest saved revision could not be read. ` +
+            "Your unsaved values remain below; retry recovery before saving again.",
+        );
+      }
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -118,6 +143,7 @@ function OperatorDrafts() {
             <Button
               key={item.id}
               variant="outline"
+              disabled={saving}
               className="w-full justify-between"
               onClick={() => {
                 setDraft(item);
@@ -147,6 +173,7 @@ function OperatorDrafts() {
         id={name}
         name={name}
         defaultValue={draft[name] ?? ""}
+        disabled={saving}
         aria-invalid={!!errors[name]}
         aria-describedby={errors[name] ? `${name}-error` : undefined}
       />
@@ -167,7 +194,12 @@ function OperatorDrafts() {
             Drafts may be incomplete · revision {draft.revision}
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={() => setDraft(null)}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={saving}
+          onClick={() => setDraft(null)}
+        >
           All drafts
         </Button>
       </div>
@@ -180,19 +212,25 @@ function OperatorDrafts() {
           <Label htmlFor="structure">
             Business structure (required to submit)
           </Label>
-          <select
+          <NativeSelect
             id="structure"
             name="structure"
             defaultValue={draft.structure ?? ""}
+            disabled={saving}
+            aria-invalid={!!errors.structure}
             aria-describedby={errors.structure ? "structure-error" : undefined}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            className="w-full"
           >
-            <option value="">Not set</option>
-            <option value="SOLE_PROPRIETOR">Sole proprietor</option>
-            <option value="PARTNERSHIP">Partnership</option>
-            <option value="COMPANY">Company</option>
-            <option value="OTHER">Other</option>
-          </select>
+            <NativeSelectOption value="">Not set</NativeSelectOption>
+            <NativeSelectOption value="SOLE_PROPRIETOR">
+              Sole proprietor
+            </NativeSelectOption>
+            <NativeSelectOption value="PARTNERSHIP">
+              Partnership
+            </NativeSelectOption>
+            <NativeSelectOption value="COMPANY">Company</NativeSelectOption>
+            <NativeSelectOption value="OTHER">Other</NativeSelectOption>
+          </NativeSelect>
           {errors.structure && (
             <p id="structure-error" className="text-sm text-destructive">
               {errors.structure}
@@ -205,22 +243,24 @@ function OperatorDrafts() {
         {input("applicantName", "Name", true)}
         <div className="space-y-2">
           <Label htmlFor="applicantRole">Role (required to submit)</Label>
-          <select
+          <NativeSelect
             id="applicantRole"
             name="applicantRole"
             defaultValue={draft.applicantRole ?? ""}
+            disabled={saving}
+            aria-invalid={!!errors.applicantRole}
             aria-describedby={
               errors.applicantRole ? "applicantRole-error" : undefined
             }
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            className="w-full"
           >
-            <option value="">Not set</option>
+            <NativeSelectOption value="">Not set</NativeSelectOption>
             {["OWNER", "DIRECTOR", "EMPLOYEE", "REPRESENTATIVE"].map(
               (role) => (
-                <option key={role}>{role}</option>
+                <NativeSelectOption key={role}>{role}</NativeSelectOption>
               ),
             )}
-          </select>
+          </NativeSelect>
           {errors.applicantRole && (
             <p id="applicantRole-error" className="text-sm text-destructive">
               {errors.applicantRole}
@@ -233,7 +273,9 @@ function OperatorDrafts() {
       <p role="status" className="text-sm text-muted-foreground">
         {status}
       </p>
-      <Button type="submit">Save draft</Button>
+      <Button type="submit" disabled={saving}>
+        {saving ? "Saving…" : "Save draft"}
+      </Button>
     </form>
   );
 }
@@ -314,7 +356,11 @@ export default function App() {
 
   return (
     <main className="grid min-h-svh place-items-center bg-background p-4 sm:p-8">
-      <Card className={`w-full ${user?.role === "OPERATOR" ? "max-w-4xl" : "max-w-md"} border-border bg-card shadow-2xl`}>
+      <Card
+        className={`w-full ${
+          user?.role === "OPERATOR" ? "max-w-4xl" : "max-w-md"
+        } border-border bg-card shadow-2xl`}
+      >
         <CardHeader>
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Regulatory and licensing platform
@@ -345,7 +391,14 @@ export default function App() {
                   Loading workspace…
                 </p>
               ) : workspace ? (
-                user.role === "OPERATOR" ? <><p className="text-sm leading-6">{workspace.message}</p><OperatorDrafts /></> : <p className="text-sm leading-6">{workspace.message}</p>
+                user.role === "OPERATOR" ? (
+                  <>
+                    <p className="text-sm leading-6">{workspace.message}</p>
+                    <OperatorDrafts />
+                  </>
+                ) : (
+                  <p className="text-sm leading-6">{workspace.message}</p>
+                )
               ) : (
                 <Button variant="outline" onClick={() => loadWorkspace(user)}>
                   Retry workspace

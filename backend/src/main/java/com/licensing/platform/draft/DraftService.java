@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -48,7 +49,11 @@ public class DraftService {
                     "applicantEmail", "applicant_email",
                     "applicantPhone", "applicant_phone");
     private static final Pattern REGISTRATION = Pattern.compile("[A-Za-z0-9/-]{3,40}");
-    private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern EMAIL =
+            Pattern.compile(
+                    "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+                            + "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                            + "(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$");
     private static final Pattern PHONE = Pattern.compile("^\\+?[0-9 ()-]*$");
     private static final String BASE_SELECT =
             """
@@ -89,6 +94,46 @@ public class DraftService {
                                         HttpStatus.NOT_FOUND, "not_found", "Draft not found"));
     }
 
+    public Patch parsePatch(Map<String, Object> body) {
+        Set<String> unknown = new java.util.TreeSet<>(body.keySet());
+        unknown.removeAll(Set.of("expectedRevision", "fields"));
+        if (!unknown.isEmpty()) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "invalid_request",
+                    "Unknown request properties: " + String.join(", ", unknown));
+        }
+        Object revisionValue = body.get("expectedRevision");
+        if (!(revisionValue instanceof Number number)
+                || number.longValue() < 0
+                || number.doubleValue() != number.longValue()) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "invalid_request",
+                    "expectedRevision must be a non-negative integer");
+        }
+        Object fieldsValue = body.get("fields");
+        if (fieldsValue == null) {
+            return new Patch(number.longValue(), Map.of());
+        }
+        if (!(fieldsValue instanceof Map<?, ?> suppliedFields)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST, "invalid_request", "fields must be an object");
+        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        suppliedFields.forEach(
+                (key, value) -> {
+                    if (!(key instanceof String field)) {
+                        throw new ApiException(
+                                HttpStatus.BAD_REQUEST,
+                                "invalid_request",
+                                "field identifiers must be text");
+                    }
+                    fields.put(field, value);
+                });
+        return new Patch(number.longValue(), fields);
+    }
+
     @Transactional
     public Draft create(String owner, String key, Map<String, Object> suppliedPayload) {
         if (key.isBlank() || key.length() > 100) {
@@ -124,8 +169,8 @@ public class DraftService {
                 """,
                 id,
                 owner,
-                now,
-                now);
+                Timestamp.from(now),
+                Timestamp.from(now));
         database.update(
                 """
                 insert into draft_create_retry(
@@ -159,7 +204,7 @@ public class DraftService {
         } else {
             assignments.add("revision=revision+1");
             assignments.add("updated_at=?");
-            arguments.add(Instant.now());
+            arguments.add(Timestamp.from(Instant.now()));
         }
         arguments.add(id);
         arguments.add(owner);

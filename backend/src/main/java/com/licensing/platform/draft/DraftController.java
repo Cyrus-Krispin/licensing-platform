@@ -45,7 +45,7 @@ public class DraftController {
 
     @PatchMapping("/{id}/draft")
     public DraftService.Draft save(
-            @PathVariable UUID id, @RequestBody DraftService.Patch patch, Principal actor) {
-        return drafts.save(id, actor.getName(), patch);
+            @PathVariable UUID id, @RequestBody Map<String, Object> body, Principal actor) {
+        return drafts.save(id, actor.getName(), drafts.parsePatch(body));
     }
 }

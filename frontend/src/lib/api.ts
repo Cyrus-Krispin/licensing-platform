@@ -38,6 +38,10 @@ export async function listDrafts(): Promise<Draft[]> {
   if (!response.ok) throw await responseError(response, "Drafts could not be loaded");
   return response.json();
 }
+export async function getDraft(id: string): Promise<Draft> {
+  const response = await fetch(`/api/applications/${id}`);
+  return draftResponse(response);
+}
 export async function createDraft(key: string): Promise<Draft> {
   return draftResponse(await csrfRequest("/api/applications", { method: "POST", headers: { "Idempotency-Key": key }, body: "{}" }));
 }

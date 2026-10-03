@@ -38,7 +38,7 @@ Normal local setup contains exactly one operator and one officer, seeded persist
 | Read unsubmitted working draft | No | Owner | No |
 | Upload/replace current requested document | No | Owner, within editing permissions | No |
 | Read submitted versions/files/history | No | Own applications | All submitted cases |
-| Enter contextual feedback/use templates | No | No | Yes, while reviewing; proposed append-only additions during corrections |
+| Enter contextual feedback/use templates | No | No | Yes, while reviewing; the issued request set stays fixed while an operator correction round is open |
 | Start review/request corrections/resolve issues | No | No | Yes in the defined review workflow |
 | Submit/resubmit | No | Owner, in permitted state | No |
 | Approve/reject | No | No | Yes, while reviewing |
