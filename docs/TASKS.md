@@ -2,11 +2,11 @@
 
 ## Authority and execution rules
 
-This is a **proposed local backlog for review**, derived from the current [SCOPE.md](SCOPE.md) and [SPEC.md](SPEC.md) in this documentation folder. The user has authorized implementation, then prioritized cloud environment/dispatch verification before substantial foundation coding. Application tasks remain unstarted; no issue set or cloud trigger is configured by this document. Scope requirements remain accepted; the specification's engineering proposals remain proposals until explicitly accepted through the decision tasks below.
+This backlog derives from the current [SCOPE.md](SCOPE.md) and [SPEC.md](SPEC.md) in this documentation folder. The user authorizes one scoped issue at a time for autonomous routine implementation and verification through Codex CLOUD; agents do not need repeated permission questions for already accepted slices or routine technical choices. T04 foundation implementation is in draft PR #8; later application slices remain unstarted. Scope requirements remain accepted, while specification items explicitly marked proposed remain proposals until accepted through the decision tasks below.
 
-**Accepted contribution rule:** main receives changes only through pull requests; agents work on branches (default prefix `feature/`) and must not commit directly on or push directly to main. **GitHub enforcement is verified:** `Cyrus-Krispin/licensing-platform` is public, and main has an active PR-only ruleset with no bypasses for admins, agents, or apps. The separate “Require pull requests for licensing platform main” chat confirmed API and saved-settings readback. No required approvals or CI checks were added; PR-only enforcement does not establish those review/validation gates. Codex cloud dispatch remains unverified. This backlog does not configure repository rules.
+**Accepted contribution rule:** main receives changes only through pull requests; agents work on branches (default prefix `feature/`) and must not commit directly on or push directly to main. **GitHub enforcement is verified:** `Cyrus-Krispin/licensing-platform` is public, and main has an active PR-only ruleset with no bypasses for admins, agents, or apps. The separate “Require pull requests for licensing platform main” chat confirmed API and saved-settings readback. No required approvals or CI checks were added; PR-only enforcement does not establish those review/validation gates. Required-check configuration is planned only after the exact check names have run green on GitHub. This backlog does not configure repository rules.
 
-Apply the installed Matt Pocock `to-tickets` principles: narrow end-to-end slices, observable acceptance criteria, and explicit blocking edges. The user's requested single `TASKS.md` replaces the skill's eventual one-file-per-published-ticket format at this review stage. Do not publish issues, apply `ready-for-agent`, commit, or configure triggers from this document alone. After review, approved tasks can be converted to individual issues under separately authorized workflow setup.
+Apply narrow end-to-end slices, observable acceptance criteria, and explicit blocking edges. This file remains the planning backlog; the user authorizes dispatch of one reviewed issue at a time through the verified linked-human GitHub comment mention workflow. Do not create extra issues, parallel slices, labels, bots, or trigger configuration from this document alone.
 
 Product boundary: fictional fixed-premises cafés/restaurants; selected UC1/2 pre-site submission, contextual **individual field/document** corrections, unlimited resubmission/history, officer-confirmed resolution, document-based approval, and final rejection. Preserve exactly one seeded local operator and officer, real Spring Security authentication and backend authorization, React/TypeScript/Vite, Spring Boot, PostgreSQL metadata/records, private immutable files in a persistent Docker volume, one monorepo, and separate Docker containers through Compose. Notifications are persistent in-app only. Verification status is explicitly simulated; AI warnings/results/flags remain deferred. Site/post-site states/workflows, separate approval routing, issuance/certificates, reopening/appeals, signup/admin, and email are excluded. **Do not claim full UC2 or all-original-state compliance.**
 
@@ -18,7 +18,7 @@ Only direct blockers are listed; their ancestors also apply. Complete blockers b
 | --- | --- | --- | --- |
 | T01 | Review technical defaults and development workflow | None | Reviewed implementation choices and skill/test approach |
 | T02 | Review detailed product rules | None | Accepted or amended proposal baseline for dependent slices |
-| T03 | Establish feasibility of GitHub-to-Codex dispatch | None | Evidence-backed workflow recommendation, without assuming a trigger |
+| T03 | Establish feasibility of GitHub-to-Codex dispatch | None | **Complete:** verified linked-human comment mention → cloud task → native draft PR/update |
 | T04 | Start Docker product and sign in as either role | T01 | Real two-account login through the running product |
 | T05 | Save and recover business/applicant drafts | T04, T02 | Owned application draft persisted across sessions |
 | T06 | Complete premises and conditional requirements | T05 | Tenure/unit rules and correct evidence requests |
@@ -35,7 +35,7 @@ Only direct blockers are listed; their ancestors also apply. Complete blockers b
 | T17 | Recover safely from retries, races, and partial failures | T13 | Proven recovery across complete product mutation flows |
 | T18 | Verify and package the scoped product | T09, T14, T15, T17 | Reproducible acceptance evidence and assessment documentation |
 
-T03 is now the user's first priority: a separate cloud-setup chat owns capability verification/configuration and one authorized real issue → cloud execution → automatically created PR proof. Foundation coding is paused pending that work; this owning chat must not duplicate setup or publish issues. T03 is not a technical prerequisite for local product implementation. T01/T02/T03 are planning/feasibility tasks; T17/T18 are cross-flow verification tasks. The other tasks are vertical product slices, each including necessary persistence, API, UI, and behavioural checks. No separate “all schema,” “all backend,” or “all frontend” phase is intended.
+T03 is complete: issue #4’s linked-human `@codex` comment launched Codex CLOUD task `task_e_6ac15e7122c8832e843307e6faac0e56`, which used native Create draft PR and repeated native Update branch publication on PR #8. The optional Actions dispatcher bot was removed and is neither accepted nor part of this proof. T01/T02/T03 are planning/feasibility tasks; T17/T18 are cross-flow verification tasks. The other tasks are vertical product slices, each including necessary persistence, API, UI, and behavioural checks. No separate “all schema,” “all backend,” or “all frontend” phase is intended.
 
 ## Common completion standard
 
@@ -74,20 +74,22 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Validation:** walk initial submission, correction, resubmission, resolution, and final outcome examples against the reviewed rules. Questions may be relayed one at a time; no implementation is required to complete this review.
 
-## T03 — Establish feasibility of GitHub-to-Codex dispatch
+## T03 — Establish feasibility of GitHub-to-Codex dispatch — COMPLETE
 
-**Blocked by:** None. **Kind:** feasibility. **References:** SCOPE eventual workflow goal; SPEC material decision 4.
+**Blocked by:** None. **Kind:** feasibility. **References:** verified issue #4 / cloud task / draft PR #8 evidence.
 
-**Deliver:** verified capabilities, prerequisites, and evidence from the separately owned issue-driven cloud proof. The checks below guide preparation; the separate cloud-setup chat owns authorized external configuration and proof execution.
+**Verified result:** a linked human GitHub issue-comment mention (`@codex`) on issue #4 started Codex CLOUD task `task_e_6ac15e7122c8832e843307e6faac0e56`. The task received repository context, implemented and tested T04, used native Create to publish draft PR #8, and used native Update branch to publish subsequent repairs to the same branch. This proves that specific linked-human comment workflow; it does not prove that issue-body mentions, labels, or arbitrary automation dispatch Codex.
 
-- [ ] Inspect available official capabilities and the repository's relevant read-only configuration. Establish which actual mechanism, if any, can dispatch an issue to a Codex cloud environment; do not assume a label triggers it.
-- [ ] Establish how an agent receives scope/spec/task context, builds all required Docker services, runs validation, produces a PR, and reports evidence. Check Docker/container support and permissions in the actual intended executor.
-- [ ] Use the verified branch-protection outcome: public repository, active main PR-only ruleset, no bypasses, and no required approvals/CI checks. Verify the intended cloud executor's permissions and PR path in the proof; cloud dispatch/execution remains unverified. Do not change visibility, plan, or rules in this task, and do not treat PR-only enforcement as proof of automated review or test gates.
-- [ ] Distinguish dispatch, dependency scheduling, review, merge, and deployment permissions. Document unavailable capabilities and a practical fallback.
-- [ ] The separate cloud-setup chat now has user authorization to configure the workflow and execute one real issue/task → cloud execution → automatically created PR proof. It must record observed results and limitations; this owning planning chat does not execute or duplicate that proof.
-- [ ] If evidence cannot establish capability, report “unverified” or “unsupported,” not successful automation. This owning chat creates no GitHub issue/trigger; report the separate cloud-setup chat's actual proof outcome when available.
+- [x] Verify the public repository, main PR-only ruleset, cloud repository access, branch workflow, and native draft-PR publication path.
+- [x] Observe one real issue-comment mention → Codex CLOUD task → native draft PR result.
+- [x] Observe native Update branch publication of follow-up commits to the same PR.
+- [x] Separate ordinary GitHub Actions verification from cloud coding; Actions does not run Codex or require an OpenAI key.
+- [x] Remove the optional Actions dispatcher bot; do not restore it or cite it as accepted/proven dispatch.
+- [x] Record Docker as unavailable in Codex cloud and use an ordinary Docker-capable GitHub runner plus independently attributed orchestrator evidence without relabelling either as cloud Docker execution.
 
-**Validation:** retain primary documentation/configuration evidence and the actual issue → executor → PR result from the authorized separate chat. Use verified tracker/triage vocabulary for later issues (including skill setup if needed). The user has prioritized this work before foundation coding; do not claim cloud success from a local procedure alone.
+**Operating rule:** the user authorizes one reviewed issue at a time with autonomous routine implementation and verification. Do not ask new permission questions for an accepted slice’s routine technical choices. Dispatch, review, merge, deployment, and repository rules remain distinct: no merge, auto-merge, deployment, or ruleset change follows from this proof.
+
+**Validation evidence:** issue #4, task `task_e_6ac15e7122c8832e843307e6faac0e56`, and draft PR #8. Preserve exact limitations rather than generalizing the verified trigger.
 
 ## T04 — Start Docker product and sign in as either role
 
@@ -315,12 +317,23 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 ## Next review step
 
-The user authorized implementation, then prioritized the separate cloud-setup chat's T03 verification and one real issue/automatic-PR proof. Preserve this backlog for that executor's context, without inferring that a triage label performs dispatch. Review remaining T01/T02 proposals before dependent product work; strict fixed alternating rounds are accepted, while the narrow dependent-completeness exception remains proposed. Resume foundation implementation when the user directs it after cloud setup, using branches and PRs; do not duplicate the cloud-setup chat's issue publication/configuration.
+T03 is verified and T04 is the active foundation PR. Continue one user-authorized issue at a time through the verified linked-human comment workflow and ordinary CI; do not infer that labels, issue bodies, or an Actions bot dispatch Codex. Review remaining T02 proposals before dependent product work. Strict fixed alternating rounds are accepted, T16 is excluded, and the narrow dependent-completeness exception remains proposed and unimplemented.
 
 ## T04 implementation evidence (2026-10-03)
 
-The `feature/docker-role-sign-in` slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, designed to run real PostgreSQL and Compose validation after publication. Local Maven evidence uses H2 in PostgreSQL compatibility mode and does not establish PostgreSQL compatibility. Independent Docker evidence supplied during review covers the original revision’s real auth/session restart behavior only; corrected current-branch Compose/browser results remain pending GitHub Actions. Measured coverage establishes documented regression gates (frontend 75% statements/70% branches/75% functions/80% lines; backend 80% lines) without excluding authentication or business code. CD, rollback, production destination/secrets, and T02 product rules remain deferred. This progress note does not accept or amend any proposal markers above.
+The PR #8 feature slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, designed to run real PostgreSQL and Compose validation after publication. Local Maven evidence uses H2 in PostgreSQL compatibility mode and does not establish PostgreSQL compatibility. The 12 frontend tests measured 94.18% statements, 97.77% branches, and 93.90% lines with the API module fully covered; the 12 backend tests, including real random-port servlet HTTP over the H2-compatible database, measured 92.77% lines and 100% branches. Independently executed Docker/browser evidence is attributed by revision in the README: the original revision established real-cookie auth and same-cookie restart behavior, while `cb574d33279b1f4ba792831810f7570cdb9b2418` passed three-service health and browser checks but failed missing-CSRF and Trivy gates. Exact-head results for `34000145922a19eb29a925bd61aa52a750cee804` remain pending and earlier evidence is not treated as current-head success. CD, rollback, production destination/secrets, required-check ruleset changes, and T02 product implementation remain deferred. This progress note does not accept or amend any proposal markers above.
 
-## Deferred CI roadmap decision
+## CI-D1 — Add SonarQube static analysis and quality gate — DEFERRED
 
-SonarQube integration for Java and TypeScript/React static analysis and a quality gate is deferred to a separate existing backlog/CI-roadmap task. A future reviewed implementation should consume the real JaCoCo XML and frontend LCOV reports. The official supported SonarQube Server versus Cloud choice depends on account, tooling, and cost context; this decision makes no free-plan claim and authorizes no scanner installation, account creation, secret request, or live check in T04. Existing coverage, secret, dependency, image, Compose, and browser checks remain required.
+**Blocked by:** explicit future CI-roadmap authorization and a reviewed account/tool/cost decision. **Kind:** separate CI roadmap task; not a blocker for T04 or the product backlog.
+
+**Deliver later:** official supported Java and TypeScript/React analysis integrated with the selected SonarQube Server or Cloud offering. No free-plan availability or suitability is assumed.
+
+- [ ] Compare currently supported SonarQube Server and Cloud options against the available account, repository tooling, operational ownership, and cost constraints.
+- [ ] Select an official supported scanner/integration and pin its version or action immutably.
+- [ ] Import the actual backend JaCoCo XML report and frontend LCOV report without replacing behavioural tests or existing coverage gates.
+- [ ] Propose and review a meaningful quality gate for Java and TypeScript/React; do not exclude authentication or business code to improve metrics.
+- [ ] Design least-privilege secret handling and fork/PR behavior before requesting or configuring any credential.
+- [ ] Add a read-only PR check, document its exact check name and failure evidence, and consider ruleset enforcement only after that exact check has run green.
+
+**Not authorized now:** scanner installation, account/project creation, secret requests, live Sonar checks, paid-service commitment, or claims about free plans. Existing coverage, Gitleaks, dependency, packaged-JAR, image, Compose, and browser checks remain required.
