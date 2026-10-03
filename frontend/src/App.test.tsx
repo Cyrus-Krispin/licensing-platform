@@ -21,6 +21,57 @@ const workspace = {
   username: "operator",
 };
 
+const requests = (tenure: "OWNED" | "RENTED") => [
+  {
+    id: "lease-request",
+    type: "LEASE_EVIDENCE",
+    applicability:
+      tenure === "RENTED"
+        ? ("APPLICABLE" as const)
+        : ("NOT_APPLICABLE" as const),
+    reason:
+      tenure === "RENTED"
+        ? "Required because the premises are rented."
+        : "Not required because the premises are owned.",
+  },
+  {
+    id: "ownership-request",
+    type: "OWNERSHIP_EVIDENCE",
+    applicability:
+      tenure === "OWNED"
+        ? ("APPLICABLE" as const)
+        : ("NOT_APPLICABLE" as const),
+    reason:
+      tenure === "OWNED"
+        ? "Required because the premises are owned."
+        : "Not required because the premises are rented.",
+  },
+];
+
+function premisesDraft(overrides: Partial<api.Draft> = {}): api.Draft {
+  return {
+    id: "premises-draft",
+    revision: 1,
+    status: "DRAFT",
+    updatedAt: "2026-10-03T00:00:00Z",
+    legalName: "Cafe",
+    tradingName: null,
+    registrationNumber: null,
+    structure: null,
+    applicantName: null,
+    applicantRole: "OWNER",
+    applicantEmail: null,
+    applicantPhone: null,
+    premisesAddress: "10 Market Street",
+    premisesName: null,
+    unitApplicable: true,
+    unitNumber: "4",
+    tenure: "RENTED",
+    documentRequests: requests("RENTED"),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.me).mockResolvedValue(null);
@@ -67,6 +118,162 @@ describe("authentication workspace", () => {
       0,
       { legalName: "Cafe One" },
     );
+  });
+
+  test("sends a genuine boolean false for unit applicability", async () => {
+    const draft = premisesDraft({ unitApplicable: null, unitNumber: null });
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockResolvedValue({
+      ...draft,
+      revision: 2,
+      unitApplicable: false,
+    });
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    await userEvent.selectOptions(
+      screen.getByLabelText(/Does the premises have a unit number/),
+      "false",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(api.saveDraft).toHaveBeenCalledWith("premises-draft", 1, {
+      unitApplicable: false,
+    });
+  });
+
+  test("retains an inconsistent unit after 422 until it is explicitly cleared", async () => {
+    const draft = premisesDraft();
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft)
+      .mockRejectedValueOnce({
+        status: 422,
+        message: "Correct the highlighted fields",
+        fieldErrors: {
+          unitNumber: "Clear the unit number before choosing no unit",
+        },
+      })
+      .mockResolvedValueOnce({
+        ...draft,
+        revision: 2,
+        unitApplicable: false,
+        unitNumber: null,
+      });
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    const applicability = screen.getByLabelText(
+      /Does the premises have a unit number/,
+    );
+    const unitNumber = screen.getByLabelText(/Unit number/);
+    await userEvent.selectOptions(applicability, "false");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(await screen.findByText(/Clear the unit number/)).toBeVisible();
+    expect(applicability).toHaveValue("false");
+    expect(unitNumber).toHaveValue("4");
+    expect(api.saveDraft).toHaveBeenNthCalledWith(1, "premises-draft", 1, {
+      unitApplicable: false,
+    });
+
+    await userEvent.clear(unitNumber);
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(api.saveDraft).toHaveBeenNthCalledWith(2, "premises-draft", 1, {
+      unitApplicable: false,
+      unitNumber: null,
+    });
+  });
+
+  test("changes requirements only after the saved response succeeds", async () => {
+    const draft = premisesDraft();
+    let resolveSave: ((draft: api.Draft) => void) | undefined;
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    expect(
+      screen.getByText("Required because the premises are rented."),
+    ).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText(/Tenure/), "OWNED");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(
+      screen.getByText("Required because the premises are rented."),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Required because the premises are owned."),
+    ).not.toBeInTheDocument();
+
+    resolveSave?.(
+      premisesDraft({
+        revision: 2,
+        tenure: "OWNED",
+        documentRequests: requests("OWNED"),
+      }),
+    );
+    expect(
+      await screen.findByText("Required because the premises are owned."),
+    ).toBeVisible();
+  });
+
+  test("keeps unrelated remote premises values during explicit conflict resolution", async () => {
+    const draft = premisesDraft();
+    const remote = premisesDraft({
+      revision: 2,
+      tenure: "OWNED",
+      unitApplicable: false,
+      unitNumber: null,
+      documentRequests: requests("OWNED"),
+    });
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft)
+      .mockRejectedValueOnce({
+        status: 409,
+        message: "Changed elsewhere",
+        fieldErrors: {},
+      })
+      .mockResolvedValueOnce({ ...remote, revision: 3, legalName: "Local cafe" });
+    vi.mocked(api.getDraft).mockResolvedValue(remote);
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    await userEvent.clear(screen.getByLabelText(/Legal name/));
+    await userEvent.type(screen.getByLabelText(/Legal name/), "Local cafe");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Keep and review my edits" }),
+    );
+
+    expect(screen.getByLabelText(/Tenure/)).toHaveValue("OWNED");
+    expect(
+      screen.getByLabelText(/Does the premises have a unit number/),
+    ).toHaveValue("false");
+    expect(screen.getByLabelText(/Unit number/)).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(api.saveDraft).toHaveBeenNthCalledWith(2, "premises-draft", 2, {
+      legalName: "Local cafe",
+    });
   });
 
   test("retries an uncertain create with the same key without overlap", async () => {

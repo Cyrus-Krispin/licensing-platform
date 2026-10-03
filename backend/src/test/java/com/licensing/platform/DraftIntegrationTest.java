@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -155,6 +156,76 @@ class DraftIntegrationTest {
             assertEquals(first.get(10, TimeUnit.SECONDS).id(), second.get(10, TimeUnit.SECONDS).id());
         }
         assertEquals(1, drafts.list("owner-a").size());
+    }
+
+    @Test
+    void concurrentPostgresReadsNeverMixDraftAndRequirementRevisions() throws Exception {
+        assumeTrue(
+                isPostgres(),
+                "H2 verifies portable reads; CI PostgreSQL verifies read/write snapshots");
+        var initial = drafts.create("owner-a", "read-consistency", Map.of("tenure", "RENTED"));
+        Map<String, UUID> requestIds =
+                initial.documentRequests().stream()
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        DraftService.DocumentRequest::type,
+                                        DraftService.DocumentRequest::id));
+        AtomicBoolean writing = new AtomicBoolean(true);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var writer =
+                    executor.submit(
+                            () -> {
+                                start.await();
+                                var current = initial;
+                                try {
+                                    for (int index = 0; index < 100; index++) {
+                                        String tenure = index % 2 == 0 ? "OWNED" : "RENTED";
+                                        current =
+                                                drafts.save(
+                                                        current.id(),
+                                                        "owner-a",
+                                                        new DraftService.Patch(
+                                                                current.revision(),
+                                                                Map.of("tenure", tenure)));
+                                    }
+                                    return current;
+                                } finally {
+                                    writing.set(false);
+                                }
+                            });
+            var reader =
+                    executor.submit(
+                            () -> {
+                                start.await();
+                                int reads = 0;
+                                do {
+                                    assertCoherent(drafts.get(initial.id(), "owner-a"), requestIds);
+                                    assertCoherent(drafts.list("owner-a").getFirst(), requestIds);
+                                    reads++;
+                                } while (writing.get() || reads < 100);
+                                return reads;
+                            });
+
+            start.countDown();
+            assertCoherent(writer.get(20, TimeUnit.SECONDS), requestIds);
+            assertTrue(reader.get(20, TimeUnit.SECONDS) >= 100);
+        }
+    }
+
+    private void assertCoherent(DraftService.Draft draft, Map<String, UUID> requestIds) {
+        String lease = request(draft, "LEASE_EVIDENCE").applicability();
+        String ownership = request(draft, "OWNERSHIP_EVIDENCE").applicability();
+        if (draft.tenure().equals("RENTED")) {
+            assertEquals("APPLICABLE", lease);
+            assertEquals("NOT_APPLICABLE", ownership);
+        } else {
+            assertEquals("NOT_APPLICABLE", lease);
+            assertEquals("APPLICABLE", ownership);
+        }
+        draft.documentRequests()
+                .forEach(request -> assertEquals(requestIds.get(request.type()), request.id()));
     }
 
     private boolean isPostgres() throws SQLException {

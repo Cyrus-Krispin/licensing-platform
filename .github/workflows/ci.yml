@@ -71,6 +71,37 @@ jobs:
           -Dspring.datasource.url=jdbc:postgresql://localhost:5432/licensing_test
           -Dspring.datasource.username=test
           -Dspring.datasource.password="$DATABASE_PASSWORD"
+      - name: Verify PostgreSQL concurrency tests executed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          required = {
+              "simultaneousPostgresRetriesConvergeOnOneCommittedDraft",
+              "concurrentPostgresReadsNeverMixDraftAndRequirementRevisions",
+          }
+          cases = {}
+          for report in Path("backend/target/surefire-reports").glob("TEST-*.xml"):
+              for case in ElementTree.parse(report).iterfind(".//testcase"):
+                  if case.attrib.get("name") in required:
+                      cases[case.attrib["name"]] = case
+
+          missing = required - cases.keys()
+          skipped = {
+              name
+              for name, case in cases.items()
+              if case.find("skipped") is not None
+              or case.find("failure") is not None
+              or case.find("error") is not None
+          }
+          if missing or skipped:
+              raise SystemExit(
+                  f"PostgreSQL concurrency coverage failed: missing={sorted(missing)}, "
+                  f"skipped_or_failed={sorted(skipped)}"
+              )
+          print("Executed PostgreSQL create and coherent read/write concurrency tests (zero skips)")
+          PY
       - name: Stage packaged JAR for rootfs scanning
         run: |
           mkdir -p backend/target/trivy-rootfs

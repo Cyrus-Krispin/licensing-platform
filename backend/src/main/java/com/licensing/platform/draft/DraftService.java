@@ -45,12 +45,18 @@ public class DraftService {
                     "tenure");
     private static final Map<String, String> COLUMNS =
             Map.ofEntries(
-                    Map.entry("legalName", "legal_name"), Map.entry("tradingName", "trading_name"),
-                    Map.entry("registrationNumber", "registration_number"), Map.entry("structure", "business_structure"),
-                    Map.entry("applicantName", "applicant_name"), Map.entry("applicantRole", "applicant_role"),
-                    Map.entry("applicantEmail", "applicant_email"), Map.entry("applicantPhone", "applicant_phone"),
-                    Map.entry("premisesAddress", "premises_address"), Map.entry("premisesName", "premises_name"),
-                    Map.entry("unitApplicable", "unit_applicable"), Map.entry("unitNumber", "unit_number"),
+                    Map.entry("legalName", "legal_name"),
+                    Map.entry("tradingName", "trading_name"),
+                    Map.entry("registrationNumber", "registration_number"),
+                    Map.entry("structure", "business_structure"),
+                    Map.entry("applicantName", "applicant_name"),
+                    Map.entry("applicantRole", "applicant_role"),
+                    Map.entry("applicantEmail", "applicant_email"),
+                    Map.entry("applicantPhone", "applicant_phone"),
+                    Map.entry("premisesAddress", "premises_address"),
+                    Map.entry("premisesName", "premises_name"),
+                    Map.entry("unitApplicable", "unit_applicable"),
+                    Map.entry("unitNumber", "unit_number"),
                     Map.entry("tenure", "tenure"));
     private static final Pattern REGISTRATION = Pattern.compile("[A-Za-z0-9/-]{3,40}");
     private static final Pattern EMAIL =
@@ -67,6 +73,17 @@ public class DraftService {
                    unit_number, tenure, updated_at
               from application_draft
             """;
+    private static final String JOINED_SELECT =
+            """
+            select d.id, d.revision, d.status, d.legal_name, d.trading_name,
+                   d.registration_number, d.business_structure, d.applicant_name,
+                   d.applicant_role, d.applicant_email, d.applicant_phone,
+                   d.premises_address, d.premises_name, d.unit_applicable,
+                   d.unit_number, d.tenure, d.updated_at,
+                   r.id as request_id, r.request_type, r.applicability, r.reason
+              from application_draft d
+              join document_request r on r.application_id=d.id
+            """;
 
     private final JdbcTemplate database;
     private final ObjectMapper objectMapper;
@@ -82,15 +99,20 @@ public class DraftService {
     }
 
     public List<Draft> list(String owner) {
-        return database.query(
-                BASE_SELECT + " where owner_username=? order by updated_at desc, id",
-                mapper(),
+        return queryDrafts(
+                JOINED_SELECT
+                        + " where d.owner_username=?"
+                        + " order by d.updated_at desc, d.id, r.request_type",
                 owner);
     }
 
     public Draft get(UUID id, String owner) {
-        return database.query(
-                        BASE_SELECT + " where id=? and owner_username=?", mapper(), id, owner)
+        return queryDrafts(
+                        JOINED_SELECT
+                                + " where d.id=? and d.owner_username=?"
+                                + " order by r.request_type",
+                        id,
+                        owner)
                 .stream()
                 .findFirst()
                 .orElseThrow(
@@ -196,11 +218,29 @@ public class DraftService {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST, "invalid_request", "expectedRevision is required");
         }
-        Map<String, Object> values = canonicalPayload(patch.fields() == null ? Map.of() : patch.fields());
-        Draft current = database.query(BASE_SELECT + " where id=? and owner_username=? and status='DRAFT' for update", mapper(), id, owner)
-                .stream().findFirst().orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found", "Draft not found"));
+        Map<String, Object> values =
+                canonicalPayload(patch.fields() == null ? Map.of() : patch.fields());
+        Draft current =
+                database.query(
+                                BASE_SELECT
+                                        + " where id=? and owner_username=?"
+                                        + " and status='DRAFT' for update",
+                                draftRowMapper(),
+                                id,
+                                owner)
+                        .stream()
+                        .findFirst()
+                        .orElseThrow(
+                                () ->
+                                        new ApiException(
+                                                HttpStatus.NOT_FOUND,
+                                                "not_found",
+                                                "Draft not found"));
         if (current.revision() != patch.expectedRevision()) {
-            throw new ApiException(HttpStatus.CONFLICT, "stale_revision", "This draft changed elsewhere. Reload the saved draft; your unsaved values have been retained.");
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "stale_revision",
+                    "This draft changed elsewhere. Reload the saved draft; your unsaved values have been retained.");
         }
         validateConsistency(current, values);
         List<String> assignments = new ArrayList<>();
@@ -228,40 +268,115 @@ public class DraftService {
                                 + String.join(", ", assignments)
                                 + " where id=? and owner_username=? and status='DRAFT' and revision=?",
                         arguments.toArray());
-        if (changed == 0) throw new IllegalStateException("Locked draft disappeared during save");
-        String tenure = values.containsKey("tenure") ? (String) values.get("tenure") : current.tenure();
-        String role = values.containsKey("applicantRole") ? (String) values.get("applicantRole") : current.applicantRole();
+        if (changed == 0) {
+            throw new IllegalStateException("Locked draft disappeared during save");
+        }
+        String tenure =
+                values.containsKey("tenure") ? (String) values.get("tenure") : current.tenure();
+        String role =
+                values.containsKey("applicantRole")
+                        ? (String) values.get("applicantRole")
+                        : current.applicantRole();
         updateRequests(id, tenure, role);
         return get(id, owner);
     }
 
     private void validateConsistency(Draft current, Map<String, Object> values) {
-        Boolean applicable = values.containsKey("unitApplicable") ? (Boolean) values.get("unitApplicable") : current.unitApplicable();
-        String number = values.containsKey("unitNumber") ? (String) values.get("unitNumber") : current.unitNumber();
+        Boolean applicable =
+                values.containsKey("unitApplicable")
+                        ? (Boolean) values.get("unitApplicable")
+                        : current.unitApplicable();
+        String number =
+                values.containsKey("unitNumber")
+                        ? (String) values.get("unitNumber")
+                        : current.unitNumber();
         if (Boolean.FALSE.equals(applicable) && number != null) {
-            throw new ValidationException(Map.of("unitNumber", "Clear the unit number before choosing no unit"));
+            throw new ValidationException(
+                    Map.of("unitNumber", "Clear the unit number before choosing no unit"));
         }
     }
 
     private void insertRequests(UUID id, String tenure, String role) {
-        for (String type : List.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION", "LEASE_EVIDENCE", "OWNERSHIP_EVIDENCE", "REPRESENTATIVE_AUTHORIZATION")) {
+        for (String type : requestTypes()) {
             RequestState state = requestState(type, tenure, role);
-            database.update("insert into document_request(id, application_id, request_type, applicability, reason) values (?, ?, ?, ?, ?)", UUID.randomUUID(), id, type, state.applicability(), state.reason());
+            database.update(
+                    """
+                    insert into document_request(
+                        id, application_id, request_type, applicability, reason
+                    ) values (?, ?, ?, ?, ?)
+                    """,
+                    UUID.randomUUID(),
+                    id,
+                    type,
+                    state.applicability(),
+                    state.reason());
         }
     }
 
     private void updateRequests(UUID id, String tenure, String role) {
-        for (String type : List.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION", "LEASE_EVIDENCE", "OWNERSHIP_EVIDENCE", "REPRESENTATIVE_AUTHORIZATION")) {
+        for (String type : requestTypes()) {
             RequestState state = requestState(type, tenure, role);
-            database.update("update document_request set applicability=?, reason=? where application_id=? and request_type=?", state.applicability(), state.reason(), id, type);
+            database.update(
+                    """
+                    update document_request
+                       set applicability=?, reason=?
+                     where application_id=? and request_type=?
+                    """,
+                    state.applicability(),
+                    state.reason(),
+                    id,
+                    type);
         }
     }
 
+    private List<String> requestTypes() {
+        return List.of(
+                "BUSINESS_REGISTRATION",
+                "PREMISES_LAYOUT",
+                "FOOD_USE_PERMISSION",
+                "LEASE_EVIDENCE",
+                "OWNERSHIP_EVIDENCE",
+                "REPRESENTATIVE_AUTHORIZATION");
+    }
+
     private RequestState requestState(String type, String tenure, String role) {
-        if (Set.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION").contains(type)) return new RequestState("APPLICABLE", "Required for every application.");
-        if (type.equals("LEASE_EVIDENCE")) return tenure == null ? new RequestState("NEEDS_INPUT", "Set the premises tenure to determine whether lease evidence is required.") : tenure.equals("RENTED") ? new RequestState("APPLICABLE", "Required because the premises are rented.") : new RequestState("NOT_APPLICABLE", "Not required because the premises are owned.");
-        if (type.equals("OWNERSHIP_EVIDENCE")) return tenure == null ? new RequestState("NEEDS_INPUT", "Set the premises tenure to determine whether ownership evidence is required.") : tenure.equals("OWNED") ? new RequestState("APPLICABLE", "Required because the premises are owned.") : new RequestState("NOT_APPLICABLE", "Not required because the premises are rented.");
-        return role == null ? new RequestState("NEEDS_INPUT", "Set the applicant role to determine whether representative authorization is required.") : role.equals("REPRESENTATIVE") ? new RequestState("APPLICABLE", "Required because the applicant is a representative.") : new RequestState("NOT_APPLICABLE", "Not required because the applicant is not a representative.");
+        if (Set.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION")
+                .contains(type)) {
+            return new RequestState("APPLICABLE", "Required for every application.");
+        }
+        if (type.equals("LEASE_EVIDENCE")) {
+            if (tenure == null) {
+                return new RequestState(
+                        "NEEDS_INPUT",
+                        "Set the premises tenure to determine whether lease evidence is required.");
+            }
+            return tenure.equals("RENTED")
+                    ? new RequestState("APPLICABLE", "Required because the premises are rented.")
+                    : new RequestState(
+                            "NOT_APPLICABLE", "Not required because the premises are owned.");
+        }
+        if (type.equals("OWNERSHIP_EVIDENCE")) {
+            if (tenure == null) {
+                return new RequestState(
+                        "NEEDS_INPUT",
+                        "Set the premises tenure to determine whether ownership evidence is required.");
+            }
+            return tenure.equals("OWNED")
+                    ? new RequestState("APPLICABLE", "Required because the premises are owned.")
+                    : new RequestState(
+                            "NOT_APPLICABLE", "Not required because the premises are rented.");
+        }
+        if (role == null) {
+            return new RequestState(
+                    "NEEDS_INPUT",
+                    "Set the applicant role to determine whether representative authorization is required.");
+        }
+        return role.equals("REPRESENTATIVE")
+                ? new RequestState(
+                        "APPLICABLE", "Required because the applicant is a representative.")
+                : new RequestState(
+                        "NOT_APPLICABLE",
+                        "Not required because the applicant is not a representative.");
     }
 
     private void lockCreateReceipt(String owner, String key) {
@@ -394,9 +509,14 @@ public class DraftService {
         if (value == null) {
             return null;
         }
-        if (field.equals("unitApplicable")) return value;
+        if (field.equals("unitApplicable")) {
+            return value;
+        }
         String normalized = ((String) value).trim();
-        return (field.equals("tradingName") || field.equals("premisesName")) && normalized.isBlank() ? null : normalized;
+        return (field.equals("tradingName") || field.equals("premisesName"))
+                        && normalized.isBlank()
+                ? null
+                : normalized;
     }
 
     private String fingerprint(Map<String, Object> canonicalPayload) {
@@ -416,12 +536,37 @@ public class DraftService {
         }
     }
 
-    private RowMapper<Draft> mapper() {
-        return (resultSet, row) -> {
-                UUID id = resultSet.getObject("id", UUID.class);
-                List<DocumentRequest> requests = database.query("select id, request_type, applicability, reason from document_request where application_id=? order by request_type", (rs, index) -> new DocumentRequest(rs.getObject("id", UUID.class), rs.getString("request_type"), rs.getString("applicability"), rs.getString("reason")), id);
-                return new Draft(
-                        id,
+    private List<Draft> queryDrafts(String sql, Object... arguments) {
+        return database.query(
+                sql,
+                resultSet -> {
+                    Map<UUID, DraftRows> rows = new LinkedHashMap<>();
+                    while (resultSet.next()) {
+                        UUID id = resultSet.getObject("id", UUID.class);
+                        DraftRows draftRows = rows.get(id);
+                        if (draftRows == null) {
+                            draftRows =
+                                    new DraftRows(
+                                            draftRowMapper().mapRow(resultSet, rows.size()),
+                                            new ArrayList<>());
+                            rows.put(id, draftRows);
+                        }
+                        draftRows.requests().add(
+                                new DocumentRequest(
+                                        resultSet.getObject("request_id", UUID.class),
+                                        resultSet.getString("request_type"),
+                                        resultSet.getString("applicability"),
+                                        resultSet.getString("reason")));
+                    }
+                    return rows.values().stream().map(DraftRows::toDraft).toList();
+                },
+                arguments);
+    }
+
+    private RowMapper<Draft> draftRowMapper() {
+        return (resultSet, row) ->
+                new Draft(
+                        resultSet.getObject("id", UUID.class),
                         resultSet.getLong("revision"),
                         resultSet.getString("status"),
                         resultSet.getString("legal_name"),
@@ -432,15 +577,42 @@ public class DraftService {
                         resultSet.getString("applicant_role"),
                         resultSet.getString("applicant_email"),
                         resultSet.getString("applicant_phone"),
-                        resultSet.getString("premises_address"), resultSet.getString("premises_name"),
-                        (Boolean) resultSet.getObject("unit_applicable"), resultSet.getString("unit_number"),
-                        resultSet.getString("tenure"), requests,
+                        resultSet.getString("premises_address"),
+                        resultSet.getString("premises_name"),
+                        (Boolean) resultSet.getObject("unit_applicable"),
+                        resultSet.getString("unit_number"),
+                        resultSet.getString("tenure"),
+                        List.of(),
                         resultSet.getTimestamp("updated_at").toInstant());
-        };
     }
 
     private record CreateReceipt(String payloadHash, UUID applicationId) {}
     private record RequestState(String applicability, String reason) {}
+
+    private record DraftRows(Draft draft, List<DocumentRequest> requests) {
+        Draft toDraft() {
+            return new Draft(
+                    draft.id(),
+                    draft.revision(),
+                    draft.status(),
+                    draft.legalName(),
+                    draft.tradingName(),
+                    draft.registrationNumber(),
+                    draft.structure(),
+                    draft.applicantName(),
+                    draft.applicantRole(),
+                    draft.applicantEmail(),
+                    draft.applicantPhone(),
+                    draft.premisesAddress(),
+                    draft.premisesName(),
+                    draft.unitApplicable(),
+                    draft.unitNumber(),
+                    draft.tenure(),
+                    List.copyOf(requests),
+                    draft.updatedAt());
+        }
+    }
+
     public record DocumentRequest(UUID id, String type, String applicability, String reason) {}
 
     public record Patch(Long expectedRevision, Map<String, Object> fields) {}

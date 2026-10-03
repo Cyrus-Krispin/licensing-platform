@@ -418,44 +418,99 @@ function OperatorDrafts() {
         {input("premisesAddress", "Address", true)}
         {input("premisesName", "Premises name")}
         <div className="space-y-2">
-          <Label htmlFor="unitApplicable">Does the premises have a unit number?</Label>
-          <NativeSelect id="unitApplicable" name="unitApplicable"
-            defaultValue={String((editDefaults ? editDefaults.unitApplicable : draft.unitApplicable) ?? "")}
-            disabled={saving || !!conflict} aria-invalid={!!errors.unitApplicable}
-            aria-describedby={errors.unitApplicable ? "unitApplicable-error" : undefined} className="w-full">
+          <Label htmlFor="unitApplicable">
+            Does the premises have a unit number?
+          </Label>
+          <NativeSelect
+            id="unitApplicable"
+            name="unitApplicable"
+            defaultValue={String(
+              (editDefaults
+                ? editDefaults.unitApplicable
+                : draft.unitApplicable) ?? "",
+            )}
+            disabled={saving || !!conflict}
+            aria-invalid={!!errors.unitApplicable}
+            aria-describedby={
+              errors.unitApplicable ? "unitApplicable-error" : undefined
+            }
+            className="w-full"
+          >
             <NativeSelectOption value="">Not set</NativeSelectOption>
             <NativeSelectOption value="true">Yes</NativeSelectOption>
             <NativeSelectOption value="false">No</NativeSelectOption>
           </NativeSelect>
-          {errors.unitApplicable && <p id="unitApplicable-error" className="text-sm text-destructive">{errors.unitApplicable}</p>}
+          {errors.unitApplicable && (
+            <p
+              id="unitApplicable-error"
+              className="text-sm text-destructive"
+            >
+              {errors.unitApplicable}
+            </p>
+          )}
         </div>
         <div>
-          {input("unitNumber", "Unit number (required to submit when applicable)")}
-          <p className="mt-2 text-xs text-muted-foreground">If you choose no unit, clear a retained unit number before saving.</p>
+          {input(
+            "unitNumber",
+            "Unit number (required to submit when applicable)",
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            If you choose no unit, clear a retained unit number before saving.
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="tenure">Tenure (required to submit)</Label>
-          <NativeSelect id="tenure" name="tenure"
-            defaultValue={String((editDefaults ? editDefaults.tenure : draft.tenure) ?? "")}
-            disabled={saving || !!conflict} aria-invalid={!!errors.tenure}
-            aria-describedby={errors.tenure ? "tenure-error" : undefined} className="w-full">
+          <NativeSelect
+            id="tenure"
+            name="tenure"
+            defaultValue={String(
+              (editDefaults ? editDefaults.tenure : draft.tenure) ?? "",
+            )}
+            disabled={saving || !!conflict}
+            aria-invalid={!!errors.tenure}
+            aria-describedby={errors.tenure ? "tenure-error" : undefined}
+            className="w-full"
+          >
             <NativeSelectOption value="">Not set</NativeSelectOption>
             <NativeSelectOption value="OWNED">Owned</NativeSelectOption>
             <NativeSelectOption value="RENTED">Rented</NativeSelectOption>
           </NativeSelect>
-          {errors.tenure && <p id="tenure-error" className="text-sm text-destructive">{errors.tenure}</p>}
+          {errors.tenure && (
+            <p id="tenure-error" className="text-sm text-destructive">
+              {errors.tenure}
+            </p>
+          )}
         </div>
       </fieldset>
       <section aria-labelledby="requirements-heading" className="space-y-3">
         <div>
-          <h3 id="requirements-heading" className="font-medium">Evidence requirements</h3>
-          <p className="text-sm text-muted-foreground">Requirements update when this draft is saved. File upload is not available yet.</p>
+          <h3 id="requirements-heading" className="font-medium">
+            Evidence requirements
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Requirements update when this draft is saved. File upload is not
+            available yet.
+          </p>
         </div>
         <ul className="grid gap-2 sm:grid-cols-2">
           {(draft.documentRequests ?? []).map((request) => (
-            <li key={request.id} className="rounded-md border border-border p-3 text-sm">
-              <p className="font-medium">{request.type.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join(" ")}</p>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{request.applicability === "NEEDS_INPUT" ? "More information needed" : request.applicability === "APPLICABLE" ? "Required" : "Not required"}</p>
+            <li
+              key={request.id}
+              className="rounded-md border border-border p-3 text-sm"
+            >
+              <p className="font-medium">
+                {request.type
+                  .split("_")
+                  .map((part) => part[0] + part.slice(1).toLowerCase())
+                  .join(" ")}
+              </p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                {request.applicability === "NEEDS_INPUT"
+                  ? "More information needed"
+                  : request.applicability === "APPLICABLE"
+                    ? "Required"
+                    : "Not required"}
+              </p>
               <p className="mt-1 text-muted-foreground">{request.reason}</p>
             </li>
           ))}
