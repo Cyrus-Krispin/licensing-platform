@@ -270,7 +270,7 @@ public class DraftService {
         values.forEach(
                 (field, value) -> {
                     assignments.add(COLUMNS.get(field) + "=?");
-                    arguments.add(value);
+                    arguments.add(storageValue(field, value));
                 });
 
         if (assignments.isEmpty()) {
@@ -482,7 +482,10 @@ public class DraftService {
         enumValue(values, errors, "tenure", Set.of("OWNED", "RENTED"));
         enumValue(values, errors, "businessType", Set.of("CAFE", "RESTAURANT"));
         string(values, "proposedOpeningDate").ifPresent(value -> {
-            try { LocalDate.parse(value, DATE); }
+            try {
+                if (!value.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) throw new DateTimeParseException("Invalid date shape", value, 0);
+                LocalDate.parse(value, DATE);
+            }
             catch (DateTimeParseException exception) { errors.put("proposedOpeningDate", "Use a valid calendar date in YYYY-MM-DD format"); }
         });
         string(values, "applicantEmail")
@@ -579,19 +582,24 @@ public class DraftService {
             return value;
         }
         if (Set.of("preparationActivities", "serviceModes").contains(field)) {
-            List<?> sorted = ((List<?>) value).stream().sorted((a, b) -> ((String) a).compareTo((String) b)).toList();
-            return json(sorted);
+            return ((List<?>) value).stream().sorted((a, b) -> ((String) a).compareTo((String) b)).toList();
         }
         if (field.equals("operatingHours")) {
             Map<String, Object> canonicalHours = new TreeMap<>();
             ((Map<String, Object>) value).forEach((day, entry) -> canonicalHours.put(day, new TreeMap<>((Map<String, Object>) entry)));
-            return json(canonicalHours);
+            return canonicalHours;
         }
         String normalized = ((String) value).trim();
         return (field.equals("tradingName") || field.equals("premisesName"))
                         && normalized.isBlank()
                 ? null
                 : normalized;
+    }
+
+    private Object storageValue(String field, Object value) {
+        return value != null && Set.of("preparationActivities", "serviceModes", "operatingHours").contains(field)
+                ? json(value)
+                : value;
     }
 
     private String json(Object value) {

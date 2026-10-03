@@ -35,6 +35,8 @@ const fieldNames = [
 ] as const;
 type DraftField = (typeof fieldNames)[number];
 type DraftValues = Record<DraftField, string | boolean | null>;
+type PatchFields = Record<string, unknown>;
+type DayHours = NonNullable<api.Draft["operatingHours"]>[string];
 
 const fieldLabels: Record<DraftField, string> = {
   legalName: "Legal name",
@@ -57,6 +59,50 @@ const fieldLabels: Record<DraftField, string> = {
 const activities = ["BEVERAGE_PREPARATION", "COOKING", "BAKING", "REHEATING", "COLD_FOOD_PREPARATION", "PREPACKAGED_FOOD_SALE"];
 const modes = ["DINE_IN", "TAKEAWAY", "DELIVERY"];
 const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return [...value].sort();
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (record.closed === true) return { closed: true };
+    return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonicalValue(item)]));
+  }
+  return value ?? null;
+}
+
+function canonical(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function operationValues(data: FormData): PatchFields {
+  return {
+    preparationActivities: data.getAll("preparationActivities").map(String).sort(),
+    serviceModes: data.getAll("serviceModes").map(String).sort(),
+    operatingHours: Object.fromEntries([...days].sort().flatMap((day) => {
+      const state = String(data.get(`${day}.state`) ?? "NOT_SET");
+      if (state === "NOT_SET") return [];
+      return [[day, state === "CLOSED"
+        ? { closed: true }
+        : { closed: false, opens: String(data.get(`${day}.opens`) ?? ""), closes: String(data.get(`${day}.closes`) ?? ""), closesNextDay: data.get(`${day}.closesNextDay`) === "true" }]];
+    })),
+  };
+}
+
+function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFields): api.Draft {
+  const merged = { ...latest, ...edits } as api.Draft;
+  if (edits.operatingHours) {
+    const local = edits.operatingHours as Record<string, DayHours>;
+    const baseHours = base.operatingHours ?? {};
+    const hours = { ...(latest.operatingHours ?? {}) };
+    new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach((day) => {
+      if (canonical(baseHours[day]) !== canonical(local[day])) {
+        if (local[day]) hours[day] = local[day]; else delete hours[day];
+      }
+    });
+    merged.operatingHours = hours;
+  }
+  return merged;
+}
 
 function draftValues(draft: api.Draft): DraftValues {
   return Object.fromEntries(
@@ -83,6 +129,27 @@ function documentRequestLabel(type: string) {
     .join(" ");
 }
 
+function DayHoursFields({ day, initial, disabled, error }: { day: string; initial?: DayHours; disabled: boolean; error?: string }) {
+  const [state, setState] = useState(initial ? (initial.closed ? "CLOSED" : "OPEN") : "NOT_SET");
+  return (
+    <div id={`operatingHours.${day}`} className="space-y-3 rounded-md border p-3">
+      <Label htmlFor={`${day}.state`}>{documentRequestLabel(day)} hours</Label>
+      <NativeSelect id={`${day}.state`} name={`${day}.state`} value={state} onChange={(event) => setState(event.target.value)} disabled={disabled} aria-invalid={!!error} aria-describedby={error ? `${day}.error` : undefined} className="w-full">
+        <NativeSelectOption value="NOT_SET">Not set</NativeSelectOption>
+        <NativeSelectOption value="CLOSED">Closed</NativeSelectOption>
+        <NativeSelectOption value="OPEN">Open</NativeSelectOption>
+      </NativeSelect>
+      {state === "OPEN" && <div className="grid gap-3 sm:grid-cols-3">
+        <div><Label htmlFor={`${day}.opens`}>Opens on {documentRequestLabel(day)}</Label><Input id={`${day}.opens`} name={`${day}.opens`} type="time" defaultValue={initial?.opens ?? ""} disabled={disabled} /></div>
+        <div><Label htmlFor={`${day}.closes`}>Closes on {documentRequestLabel(day)}</Label><Input id={`${day}.closes`} name={`${day}.closes`} type="time" defaultValue={initial?.closes ?? ""} disabled={disabled} /></div>
+        <label className="flex items-center gap-2 text-sm" htmlFor={`${day}.closesNextDay`}><input id={`${day}.closesNextDay`} name={`${day}.closesNextDay`} type="checkbox" value="true" defaultChecked={!!initial?.closesNextDay} disabled={disabled} />Closes next day for {documentRequestLabel(day)}</label>
+      </div>}
+      {state === "CLOSED" && <p className="text-xs text-muted-foreground">Choosing Closed explicitly clears any saved times for this day when you save.</p>}
+      {error && <p id={`${day}.error`} className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 function OperatorDrafts() {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
@@ -92,7 +159,8 @@ function OperatorDrafts() {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<api.Draft | null>(null);
-  const [conflictEdits, setConflictEdits] = useState<Partial<DraftValues>>({});
+  const [conflictEdits, setConflictEdits] = useState<PatchFields>({});
+  const [conflictBase, setConflictBase] = useState<api.Draft | null>(null);
   const [editDefaults, setEditDefaults] = useState<api.Draft | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
@@ -145,16 +213,7 @@ function OperatorDrafts() {
         formValue(field, data.get(field)),
       ]),
     ) as DraftValues;
-    const operations: Record<string, unknown> = {
-      preparationActivities: data.getAll("preparationActivities").map(String).sort(),
-      serviceModes: data.getAll("serviceModes").map(String).sort(),
-      operatingHours: Object.fromEntries([...days].sort().flatMap((day) => {
-        const supplied = data.get(`${day}.supplied`) === "true";
-        if (!supplied) return [];
-        const closed = data.get(`${day}.closed`) === "true";
-        return [[day, closed ? { closed: true, opens: null, closes: null, closesNextDay: null } : { closed: false, opens: String(data.get(`${day}.opens`) ?? ""), closes: String(data.get(`${day}.closes`) ?? ""), closesNextDay: data.get(`${day}.closesNextDay`) === "true" }]];
-      })),
-    };
+    const operations = operationValues(data);
     const baseValues = draftValues(draft);
     const fields: Record<string, unknown> = Object.fromEntries(
       fieldNames
@@ -162,7 +221,7 @@ function OperatorDrafts() {
         .map((field) => [field, localValues[field]]),
     );
     Object.entries(operations).forEach(([field, value]) => {
-      if (JSON.stringify(value) !== JSON.stringify(draft[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))) fields[field] = value;
+      if (canonical(value) !== canonical(draft[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))) fields[field] = value;
     });
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
@@ -186,7 +245,7 @@ function OperatorDrafts() {
       try {
         const latest = await api.getDraft(draft.id);
         const committed = Object.entries(fields).every(
-          ([field, value]) => JSON.stringify(value) === JSON.stringify(latest[field as keyof api.Draft] ?? null),
+          ([field, value]) => canonical(value) === canonical(latest[field as keyof api.Draft] ?? null),
         );
         if (failure.status !== 409 && committed) {
           setDraft(latest);
@@ -199,7 +258,8 @@ function OperatorDrafts() {
           );
         } else {
           setConflict(latest);
-          setConflictEdits(fields as Partial<DraftValues>);
+          setConflictBase(draft);
+          setConflictEdits(fields);
           setStatus(
             `${failure.message} Review the latest saved values before choosing how to continue.`,
           );
@@ -325,6 +385,15 @@ function OperatorDrafts() {
                 </div>
               ))}
             </dl>
+            <dl className="mb-4 grid gap-3 text-xs sm:grid-cols-2">
+              {["preparationActivities", "serviceModes", "operatingHours"].map((field) => (
+                <div key={field} className="min-w-0">
+                  <dt className="font-medium">{documentRequestLabel(field.replace(/([A-Z])/g, "_$1").toUpperCase())}</dt>
+                  <dd><strong>Saved:</strong> <code className="break-all">{JSON.stringify(conflict[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))}</code></dd>
+                  <dd><strong>Local:</strong> <code className="break-all">{JSON.stringify(conflictEdits[field] ?? draft[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))}</code></dd>
+                </div>
+              ))}
+            </dl>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -338,6 +407,7 @@ function OperatorDrafts() {
                     ),
                   );
                   setConflict(null);
+                  setConflictBase(null);
                   setConflictEdits({});
                   setEditorGeneration((current) => current + 1);
                   setStatus("Reloaded the latest saved draft.");
@@ -348,14 +418,16 @@ function OperatorDrafts() {
               <Button
                 type="button"
                 onClick={() => {
+                  const retained = mergeConflictEdits(conflictBase ?? draft, conflict, conflictEdits);
                   setDraft(conflict);
-                  setEditDefaults({ ...conflict, ...conflictEdits } as api.Draft);
+                  setEditDefaults(retained);
                   setDrafts((current) =>
                     current.map((item) =>
                       item.id === conflict.id ? conflict : item,
                     ),
                   );
                   setConflict(null);
+                  setConflictBase(null);
                   setConflictEdits({});
                   setEditorGeneration((current) => current + 1);
                   setStatus(
@@ -518,25 +590,19 @@ function OperatorDrafts() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="businessType">Business type (required to submit)</Label>
-            <NativeSelect id="businessType" name="businessType" defaultValue={String((editDefaults ? editDefaults.businessType : draft.businessType) ?? "")} disabled={saving || !!conflict} className="w-full">
+            <NativeSelect id="businessType" name="businessType" defaultValue={String((editDefaults ? editDefaults.businessType : draft.businessType) ?? "")} disabled={saving || !!conflict} aria-invalid={!!errors.businessType} aria-describedby={errors.businessType ? "businessType-error" : undefined} className="w-full">
               <NativeSelectOption value="">Not set</NativeSelectOption><NativeSelectOption value="CAFE">Café</NativeSelectOption><NativeSelectOption value="RESTAURANT">Restaurant</NativeSelectOption>
             </NativeSelect>
+            {errors.businessType && <p id="businessType-error" className="text-sm text-destructive">{errors.businessType}</p>}
           </div>
           {input("proposedOpeningDate", "Proposed opening date (YYYY-MM-DD)", true)}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <fieldset id="preparationActivities"><legend className="mb-2 text-sm font-medium">Preparation activities (choose at least one)</legend>{activities.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="preparationActivities" value={value} defaultChecked={(editDefaults?.preparationActivities ?? draft.preparationActivities ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}</fieldset>
-          <fieldset id="serviceModes"><legend className="mb-2 text-sm font-medium">Service modes (choose at least one)</legend>{modes.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="serviceModes" value={value} defaultChecked={(editDefaults?.serviceModes ?? draft.serviceModes ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}</fieldset>
+          <fieldset id="preparationActivities" aria-describedby={errors.preparationActivities ? "preparationActivities-error" : undefined}><legend className="mb-2 text-sm font-medium">Preparation activities (choose at least one)</legend>{activities.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="preparationActivities" value={value} defaultChecked={(editDefaults?.preparationActivities ?? draft.preparationActivities ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}{errors.preparationActivities && <p id="preparationActivities-error" className="text-sm text-destructive">{errors.preparationActivities}</p>}</fieldset>
+          <fieldset id="serviceModes" aria-describedby={errors.serviceModes ? "serviceModes-error" : undefined}><legend className="mb-2 text-sm font-medium">Service modes (choose at least one)</legend>{modes.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="serviceModes" value={value} defaultChecked={(editDefaults?.serviceModes ?? draft.serviceModes ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}{errors.serviceModes && <p id="serviceModes-error" className="text-sm text-destructive">{errors.serviceModes}</p>}</fieldset>
         </div>
         <fieldset className="space-y-3"><legend className="font-medium">Opening hours</legend>
-          {days.map((day) => { const saved = (editDefaults?.operatingHours ?? draft.operatingHours ?? {})[day]; return <div id={`operatingHours.${day}`} key={day} className="grid gap-2 rounded-md border p-3 sm:grid-cols-5">
-            <label className="flex items-center gap-2 text-sm font-medium"><input disabled={saving || !!conflict} type="checkbox" name={`${day}.supplied`} value="true" defaultChecked={!!saved} />{documentRequestLabel(day)}</label>
-            <label className="text-sm">Closed <input disabled={saving || !!conflict} type="checkbox" name={`${day}.closed`} value="true" defaultChecked={saved?.closed} /></label>
-            <label className="text-sm">Opens <Input disabled={saving || !!conflict} name={`${day}.opens`} type="time" defaultValue={saved?.opens ?? ""} /></label>
-            <label className="text-sm">Closes <Input disabled={saving || !!conflict} name={`${day}.closes`} type="time" defaultValue={saved?.closes ?? ""} /></label>
-            <label className="text-sm">Next day <input disabled={saving || !!conflict} type="checkbox" name={`${day}.closesNextDay`} value="true" defaultChecked={!!saved?.closesNextDay} /></label>
-            {errors[`operatingHours.${day}`] && <p className="text-sm text-destructive sm:col-span-5">{errors[`operatingHours.${day}`]}</p>}
-          </div>; })}
+          {days.map((day) => <DayHoursFields key={day} day={day} initial={(editDefaults?.operatingHours ?? draft.operatingHours ?? {})[day]} disabled={saving || !!conflict} error={errors[`operatingHours.${day}`]} />)}
         </fieldset>
       </fieldset>
       <section aria-labelledby="progress-heading" className="space-y-3 rounded-md border p-4">

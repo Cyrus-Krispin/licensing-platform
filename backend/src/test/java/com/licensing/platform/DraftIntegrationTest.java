@@ -63,6 +63,27 @@ class DraftIntegrationTest {
     }
 
     @Test
+    void structuredCreateAndReorderedRetryShareCanonicalReceipt() {
+        Map<String, Object> monday = new LinkedHashMap<>();
+        monday.put("opens", "09:00");
+        monday.put("closed", false);
+        monday.put("closesNextDay", false);
+        monday.put("closes", "17:00");
+        var first = drafts.create("owner-a", "structured-create", Map.of(
+                "preparationActivities", List.of("COOKING", "BAKING"),
+                "serviceModes", List.of("TAKEAWAY", "DINE_IN"),
+                "operatingHours", Map.of("MONDAY", monday)));
+        var retry = drafts.create("owner-a", "structured-create", Map.of(
+                "operatingHours", Map.of("MONDAY", Map.of("closed", false, "opens", "09:00", "closes", "17:00", "closesNextDay", false)),
+                "serviceModes", List.of("DINE_IN", "TAKEAWAY"),
+                "preparationActivities", List.of("BAKING", "COOKING")));
+
+        assertEquals(first.id(), retry.id());
+        assertEquals(List.of("BAKING", "COOKING"), retry.preparationActivities());
+        assertEquals("09:00", retry.operatingHours().get("MONDAY").opens());
+    }
+
+    @Test
     void incompletePatchPersistsAndNullClearsOptionalValue() {
         var draft = drafts.create("owner-a", "retry-2", Map.of());
         var saved =
@@ -116,6 +137,8 @@ class DraftIntegrationTest {
                 Map.<String, Object>of("preparationActivities", List.of("COOKING", "COOKING")),
                 Map.<String, Object>of("serviceModes", List.of("CURBSIDE")),
                 Map.<String, Object>of("proposedOpeningDate", "2023-02-29"),
+                Map.<String, Object>of("proposedOpeningDate", "+10000-01-01"),
+                Map.<String, Object>of("proposedOpeningDate", "-0001-01-01"),
                 Map.<String, Object>of("operatingHours", Map.of("MONDAY", Map.of("closed", false, "opens", "09:00", "closes", "09:00", "closesNextDay", false))),
                 Map.<String, Object>of("operatingHours", Map.of("FUNDAY", Map.of("closed", true))),
                 Map.<String, Object>of("operatingHours", Map.of("MONDAY", Map.of("closed", true, "opens", "09:00"))))) {
@@ -178,7 +201,7 @@ class DraftIntegrationTest {
                                 ready.countDown();
                                 start.await();
                                 return drafts.create(
-                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe"));
+                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe", "preparationActivities", List.of("COOKING", "BAKING"), "operatingHours", Map.of("MONDAY", Map.of("closed", true))));
                             });
             var second =
                     executor.submit(
@@ -186,7 +209,7 @@ class DraftIntegrationTest {
                                 ready.countDown();
                                 start.await();
                                 return drafts.create(
-                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe"));
+                                        "owner-a", "concurrent-key", Map.of("operatingHours", Map.of("MONDAY", Map.of("closed", true)), "preparationActivities", List.of("BAKING", "COOKING"), "legalName", "Cafe"));
                             });
             assertTrue(ready.await(5, TimeUnit.SECONDS));
             start.countDown();
