@@ -1,0 +1,22 @@
+name: Automation checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: automation-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  automation:
+    name: Automation tests and documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - run: node --test .github/scripts/dispatch-codex.test.cjs
+      - run: node scripts/check-markdown-links.mjs
+      - run: git diff --check
