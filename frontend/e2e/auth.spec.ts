@@ -30,8 +30,8 @@ for (const account of [
       await page.getByLabel(/Unit number/).fill("Suite 2")
       await page.getByLabel(/Tenure/).selectOption("RENTED")
       await page.getByLabel("Business type (required to submit)").selectOption("CAFE")
-      await page.getByLabel("Preparation activities (choose at least one)").getByLabel("Cooking").check()
-      await page.getByLabel("Service modes (choose at least one)").getByLabel("Dine In").check()
+      await page.getByRole("checkbox", { name: "Cooking" }).check()
+      await page.getByRole("checkbox", { name: "Dine In" }).check()
       await page.getByLabel("Monday hours").selectOption("CLOSED")
       await page.getByLabel("Tuesday hours").selectOption("OPEN")
       await page.getByLabel("Opens on Tuesday").fill("09:00")
@@ -39,7 +39,7 @@ for (const account of [
       await page.getByLabel("Wednesday hours").selectOption("OPEN")
       await page.getByLabel("Opens on Wednesday").fill("18:00")
       await page.getByLabel("Closes on Wednesday").fill("02:00")
-      await page.getByLabel("Closes next day for Wednesday").check()
+      await page.getByRole("checkbox", { name: "Closes next day for Wednesday" }).check()
       await page.getByLabel(/Proposed opening date/).fill("2020-02-29")
       await page.getByRole("button", { name: "Save draft" }).click()
       await expect(page.getByRole("status").filter({ hasText: "Saved revision 1" })).toBeVisible()
@@ -68,7 +68,7 @@ for (const account of [
       await expect(page.getByLabel("Business type (required to submit)")).toHaveValue("CAFE")
       await expect(page.getByLabel("Monday hours")).toHaveValue("CLOSED")
       await expect(page.getByLabel("Tuesday hours")).toHaveValue("OPEN")
-      await expect(page.getByLabel("Closes next day for Wednesday")).toBeChecked()
+      await expect(page.getByRole("checkbox", { name: "Closes next day for Wednesday" })).toBeChecked()
       await expect(page.getByRole("heading", { name: /Saved completion:/ })).toBeVisible()
       await expect
         .poll(() =>
