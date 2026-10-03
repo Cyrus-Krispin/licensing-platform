@@ -1,14 +1,17 @@
 package com.licensing.platform.config;
 
+import jakarta.servlet.DispatcherType;
 import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.HttpStatusAccessDeniedHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
@@ -36,7 +39,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(
                         authorization ->
                                 authorization
-                                        .requestMatchers("/api/auth/csrf", "/actuator/health/**")
+                                        .dispatcherTypeMatchers(DispatcherType.ERROR)
+                                        .permitAll()
+                                        .requestMatchers("/error", "/api/auth/csrf", "/actuator/health/**")
                                         .permitAll()
                                         .requestMatchers("/api/workspaces/operator")
                                         .hasRole("OPERATOR")
@@ -46,8 +51,13 @@ public class SecurityConfig {
                                         .authenticated())
                 .exceptionHandling(
                         exceptions ->
-                                exceptions.authenticationEntryPoint(
-                                        (request, response, exception) -> response.sendError(401)))
+                                exceptions
+                                        .authenticationEntryPoint(
+                                                (request, response, exception) ->
+                                                        response.sendError(401))
+                                        .accessDeniedHandler(
+                                                new HttpStatusAccessDeniedHandler(
+                                                        HttpStatus.FORBIDDEN)))
                 .formLogin(
                         form ->
                                 form.loginProcessingUrl("/api/auth/login")
