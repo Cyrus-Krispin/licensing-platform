@@ -65,7 +65,7 @@ describe("authentication workspace", () => {
     expect(api.saveDraft).toHaveBeenCalledWith(
       "d1",
       0,
-      expect.objectContaining({ legalName: "Cafe One", tradingName: null }),
+      { legalName: "Cafe One" },
     );
   });
 
@@ -134,18 +134,12 @@ describe("authentication workspace", () => {
     });
     vi.mocked(api.listDrafts).mockResolvedValue([draft]);
     let rejectSave: ((reason: Error) => void) | undefined;
-    vi.mocked(api.saveDraft)
-      .mockImplementationOnce(
-        () =>
-          new Promise((_, reject) => {
-            rejectSave = reject;
-          }),
-      )
-      .mockResolvedValueOnce({
-        ...draft,
-        revision: 2,
-        legalName: "Changed locally",
-      });
+    vi.mocked(api.saveDraft).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectSave = reject;
+        }),
+    );
     vi.mocked(api.getDraft).mockResolvedValue({
       ...draft,
       revision: 1,
@@ -167,16 +161,128 @@ describe("authentication workspace", () => {
     expect(legalName).toHaveValue("Changed locally");
 
     rejectSave?.(new Error("Connection ended before a response"));
-    expect(await screen.findByText(/server has revision 1/i)).toBeVisible();
+    expect(await screen.findByText(/Recovered saved revision 1/i)).toBeVisible();
     expect(api.getDraft).toHaveBeenCalledWith("draft-1");
     expect(legalName).toHaveValue("Changed locally");
     expect(legalName).toBeEnabled();
+  });
+
+  test("requires explicit conflict resolution and applies only reviewed local edits", async () => {
+    const draft = {
+      id: "two-tab-draft",
+      revision: 0,
+      status: "DRAFT" as const,
+      updatedAt: "2026-10-03T00:00:00Z",
+      legalName: "Original cafe",
+      tradingName: null,
+      registrationNumber: null,
+      structure: null,
+      applicantName: null,
+      applicantRole: null,
+      applicantEmail: "old@example.test",
+      applicantPhone: null,
+    };
+    const remote = {
+      ...draft,
+      revision: 1,
+      updatedAt: "2026-10-03T00:01:00Z",
+      applicantEmail: "new@example.test",
+    };
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft)
+      .mockRejectedValueOnce({
+        status: 409,
+        message: "This draft changed elsewhere.",
+        fieldErrors: {},
+      })
+      .mockResolvedValueOnce({
+        ...remote,
+        revision: 2,
+        legalName: "My cafe",
+      });
+    vi.mocked(api.getDraft).mockResolvedValue(remote);
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Original cafe/ }),
+    );
+    const legalName = screen.getByLabelText(/Legal name/);
+    await userEvent.clear(legalName);
+    await userEvent.type(legalName, "My cafe");
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    expect(api.saveDraft).toHaveBeenNthCalledWith(
-      2,
-      "draft-1",
-      1,
-      expect.objectContaining({ legalName: "Changed locally" }),
+
+    expect(await screen.findByText("new@example.test")).toBeVisible();
+    expect(legalName).toHaveValue("My cafe");
+    expect(legalName).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All drafts" })).toBeDisabled();
+    expect(api.saveDraft).toHaveBeenCalledTimes(1);
+    expect(api.saveDraft).toHaveBeenNthCalledWith(1, "two-tab-draft", 0, {
+      legalName: "My cafe",
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Keep and review my edits" }),
+    );
+    const reviewedLegalName = screen.getByLabelText(/Legal name/);
+    expect(reviewedLegalName).toHaveValue("My cafe");
+    expect(reviewedLegalName).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(api.saveDraft).toHaveBeenNthCalledWith(2, "two-tab-draft", 1, {
+      legalName: "My cafe",
+    });
+  });
+
+  test("can discard local conflict values and reload the saved draft", async () => {
+    const draft = {
+      id: "reload-draft",
+      revision: 0,
+      status: "DRAFT" as const,
+      updatedAt: "2026-10-03T00:00:00Z",
+      legalName: "Original",
+      tradingName: null,
+      registrationNumber: null,
+      structure: null,
+      applicantName: null,
+      applicantRole: null,
+      applicantEmail: "old@example.test",
+      applicantPhone: null,
+    };
+    const remote = {
+      ...draft,
+      revision: 1,
+      updatedAt: "2026-10-03T00:01:00Z",
+      legalName: "Saved elsewhere",
+      applicantEmail: "new@example.test",
+    };
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockRejectedValue({
+      status: 409,
+      message: "This draft changed elsewhere.",
+      fieldErrors: {},
+    });
+    vi.mocked(api.getDraft).mockResolvedValue(remote);
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Original/ }));
+    const legalName = screen.getByLabelText(/Legal name/);
+    await userEvent.clear(legalName);
+    await userEvent.type(legalName, "Local value");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Reload saved values" }),
+    );
+    expect(screen.getByLabelText(/Legal name/)).toHaveValue("Saved elsewhere");
+    expect(screen.getByLabelText(/Contact email/)).toHaveValue(
+      "new@example.test",
     );
   });
 
@@ -220,6 +326,37 @@ describe("authentication workspace", () => {
       "applicantRole-error",
     );
   });
+
+  test("truncates a maximum-length draft name without losing its full label", async () => {
+    const legalName = "L".repeat(200);
+    vi.mocked(api.me).mockResolvedValue({
+      username: "operator",
+      role: "OPERATOR",
+    });
+    vi.mocked(api.listDrafts).mockResolvedValue([
+      {
+        id: "long-name",
+        revision: 3,
+        status: "DRAFT",
+        updatedAt: "2026-10-03T00:00:00Z",
+        legalName,
+        tradingName: null,
+        registrationNumber: null,
+        structure: null,
+        applicantName: null,
+        applicantRole: null,
+        applicantEmail: null,
+        applicantPhone: null,
+      },
+    ]);
+    render(<App />);
+
+    const label = await screen.findByTitle(legalName);
+    expect(label).toHaveTextContent(legalName);
+    expect(label).toHaveClass("min-w-0", "truncate");
+    expect(label.closest("button")).toHaveClass("overflow-hidden");
+  });
+
   test.each([
     ["operator", "OPERATOR", "Operator workspace"],
     ["officer", "OFFICER", "Officer workspace"],

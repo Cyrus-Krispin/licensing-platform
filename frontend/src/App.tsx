@@ -26,6 +26,25 @@ const fieldNames = [
   "applicantEmail",
   "applicantPhone",
 ] as const;
+type DraftField = (typeof fieldNames)[number];
+type DraftValues = Record<DraftField, string | null>;
+
+const fieldLabels: Record<DraftField, string> = {
+  legalName: "Legal name",
+  tradingName: "Trading name",
+  registrationNumber: "Registration number",
+  structure: "Business structure",
+  applicantName: "Applicant name",
+  applicantRole: "Applicant role",
+  applicantEmail: "Contact email",
+  applicantPhone: "Phone",
+};
+
+function draftValues(draft: api.Draft): DraftValues {
+  return Object.fromEntries(
+    fieldNames.map((field) => [field, draft[field] ?? null]),
+  ) as DraftValues;
+}
 
 function OperatorDrafts() {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
@@ -35,6 +54,10 @@ function OperatorDrafts() {
   const [pendingCreateKey, setPendingCreateKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [conflict, setConflict] = useState<api.Draft | null>(null);
+  const [conflictEdits, setConflictEdits] = useState<Partial<DraftValues>>({});
+  const [editDefaults, setEditDefaults] = useState<api.Draft | null>(null);
+  const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
 
   useEffect(() => {
@@ -58,6 +81,7 @@ function OperatorDrafts() {
       const created = await api.createDraft(key);
       setDrafts((current) => [created, ...current.filter((item) => item.id !== created.id)]);
       setDraft(created);
+      setEditDefaults(null);
       setPendingCreateKey(null);
       setStatus("New draft created. Add details, then save explicitly.");
     } catch (cause) {
@@ -73,20 +97,27 @@ function OperatorDrafts() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
-    if (saving) return;
+    if (saving || conflict) return;
     setSaving(true);
     setStatus("Saving…");
     setErrors({});
     const data = new FormData(event.currentTarget);
-    const fields = Object.fromEntries(
+    const localValues = Object.fromEntries(
       fieldNames.map((field) => [
         field,
         String(data.get(field) ?? "") || null,
       ]),
-    );
+    ) as DraftValues;
+    const baseValues = draftValues(draft);
+    const fields = Object.fromEntries(
+      fieldNames
+        .filter((field) => localValues[field] !== baseValues[field])
+        .map((field) => [field, localValues[field]]),
+    ) as Partial<DraftValues>;
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
+      setEditDefaults(null);
       setDrafts((current) =>
         current.map((item) => (item.id === saved.id ? saved : item)),
       );
@@ -96,21 +127,31 @@ function OperatorDrafts() {
     } catch (cause) {
       const failure = cause as api.ApiError;
       setErrors(failure.fieldErrors ?? {});
+      if (failure.status === 400 || failure.status === 422) {
+        setStatus(failure.message);
+        setSaving(false);
+        return;
+      }
       try {
         const latest = await api.getDraft(draft.id);
-        setDraft((current) =>
-          current
-            ? {
-                ...current,
-                revision: latest.revision,
-                updatedAt: latest.updatedAt,
-              }
-            : current,
+        const committed = fieldNames.every(
+          (field) => localValues[field] === (latest[field] ?? null),
         );
-        setStatus(
-          `${failure.message} The server has revision ${latest.revision}. ` +
-            "Your unsaved values remain below so you can compare them before retrying.",
-        );
+        if (failure.status !== 409 && committed) {
+          setDraft(latest);
+          setDrafts((current) =>
+            current.map((item) => (item.id === latest.id ? latest : item)),
+          );
+          setStatus(
+            `Recovered saved revision ${latest.revision} after the response was lost.`,
+          );
+        } else {
+          setConflict(latest);
+          setConflictEdits(fields);
+          setStatus(
+            `${failure.message} Review the latest saved values before choosing how to continue.`,
+          );
+        }
       } catch {
         setStatus(
           `${failure.message} The latest saved revision could not be read. ` +
@@ -144,14 +185,20 @@ function OperatorDrafts() {
               key={item.id}
               variant="outline"
               disabled={saving}
-              className="w-full justify-between"
+              className="w-full min-w-0 justify-between overflow-hidden"
               onClick={() => {
                 setDraft(item);
+                setEditDefaults(null);
                 setStatus("Saved draft opened.");
               }}
             >
-              <span>{item.legalName || "Untitled draft"}</span>
-              <span>Revision {item.revision}</span>
+              <span
+                className="min-w-0 truncate"
+                title={item.legalName || "Untitled draft"}
+              >
+                {item.legalName || "Untitled draft"}
+              </span>
+              <span className="shrink-0">Revision {item.revision}</span>
             </Button>
           ))}
         </div>
@@ -160,7 +207,7 @@ function OperatorDrafts() {
   }
 
   const input = (
-    name: (typeof fieldNames)[number],
+    name: DraftField,
     label: string,
     required = false,
   ) => (
@@ -172,8 +219,10 @@ function OperatorDrafts() {
       <Input
         id={name}
         name={name}
-        defaultValue={draft[name] ?? ""}
-        disabled={saving}
+        defaultValue={
+          editDefaults ? (editDefaults[name] ?? "") : (draft[name] ?? "")
+        }
+        disabled={saving || !!conflict}
         aria-invalid={!!errors[name]}
         aria-describedby={errors[name] ? `${name}-error` : undefined}
       />
@@ -186,7 +235,7 @@ function OperatorDrafts() {
   );
 
   return (
-    <form className="space-y-6" onSubmit={save}>
+    <form key={editorGeneration} className="space-y-6" onSubmit={save}>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Application draft</h2>
@@ -197,12 +246,74 @@ function OperatorDrafts() {
         <Button
           type="button"
           variant="outline"
-          disabled={saving}
+          disabled={saving || !!conflict}
           onClick={() => setDraft(null)}
         >
           All drafts
         </Button>
       </div>
+      {conflict && (
+        <Alert role="alert">
+          <AlertTitle>Saved draft changed</AlertTitle>
+          <AlertDescription>
+            <p className="mb-3">
+              Revision {conflict.revision} is saved on the server. Your local
+              values remain in the form below.
+            </p>
+            <dl className="mb-4 grid gap-2 text-xs sm:grid-cols-2">
+              {fieldNames.map((field) => (
+                <div key={field} className="min-w-0">
+                  <dt className="font-medium">{fieldLabels[field]}</dt>
+                  <dd className="truncate" title={conflict[field] ?? "Not set"}>
+                    {conflict[field] ?? "Not set"}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDraft(conflict);
+                  setEditDefaults(null);
+                  setDrafts((current) =>
+                    current.map((item) =>
+                      item.id === conflict.id ? conflict : item,
+                    ),
+                  );
+                  setConflict(null);
+                  setConflictEdits({});
+                  setEditorGeneration((current) => current + 1);
+                  setStatus("Reloaded the latest saved draft.");
+                }}
+              >
+                Reload saved values
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setDraft(conflict);
+                  setEditDefaults({ ...conflict, ...conflictEdits });
+                  setDrafts((current) =>
+                    current.map((item) =>
+                      item.id === conflict.id ? conflict : item,
+                    ),
+                  );
+                  setConflict(null);
+                  setConflictEdits({});
+                  setEditorGeneration((current) => current + 1);
+                  setStatus(
+                    "Latest revision selected. Review the retained local edits, then save deliberately.",
+                  );
+                }}
+              >
+                Keep and review my edits
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
       <fieldset className="grid gap-4 sm:grid-cols-2">
         <legend className="mb-3 font-medium">Business</legend>
         {input("legalName", "Legal name", true)}
@@ -215,8 +326,12 @@ function OperatorDrafts() {
           <NativeSelect
             id="structure"
             name="structure"
-            defaultValue={draft.structure ?? ""}
-            disabled={saving}
+            defaultValue={
+              editDefaults
+                ? (editDefaults.structure ?? "")
+                : (draft.structure ?? "")
+            }
+            disabled={saving || !!conflict}
             aria-invalid={!!errors.structure}
             aria-describedby={errors.structure ? "structure-error" : undefined}
             className="w-full"
@@ -246,8 +361,12 @@ function OperatorDrafts() {
           <NativeSelect
             id="applicantRole"
             name="applicantRole"
-            defaultValue={draft.applicantRole ?? ""}
-            disabled={saving}
+            defaultValue={
+              editDefaults
+                ? (editDefaults.applicantRole ?? "")
+                : (draft.applicantRole ?? "")
+            }
+            disabled={saving || !!conflict}
             aria-invalid={!!errors.applicantRole}
             aria-describedby={
               errors.applicantRole ? "applicantRole-error" : undefined
@@ -273,7 +392,7 @@ function OperatorDrafts() {
       <p role="status" className="text-sm text-muted-foreground">
         {status}
       </p>
-      <Button type="submit" disabled={saving}>
+      <Button type="submit" disabled={saving || !!conflict}>
         {saving ? "Saving…" : "Save draft"}
       </Button>
     </form>

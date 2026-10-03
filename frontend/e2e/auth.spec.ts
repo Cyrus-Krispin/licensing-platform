@@ -20,16 +20,26 @@ for (const account of [
     await expect(page.getByRole("heading", { name: account.heading })).toBeVisible()
     await expect(page.locator("main")).toHaveCSS("overflow-x", "visible")
     if (account.role === "operator") {
+      const legalName = "L".repeat(200)
       await page.getByRole("button", { name: "Create draft" }).click()
-      await page.getByLabel(/Legal name/).fill("Codex Corner Cafe")
+      await page.getByLabel(/Legal name/).fill(legalName)
       await page.getByLabel(/Role/).selectOption("REPRESENTATIVE")
       await page.getByLabel(/Contact email/).fill("owner@example.test")
       await page.getByRole("button", { name: "Save draft" }).click()
       await expect(page.getByRole("status").filter({ hasText: "Saved revision 1" })).toBeVisible()
       await page.reload()
-      await page.getByRole("button", { name: /Codex Corner Cafe/ }).click()
-      await expect(page.getByLabel(/Legal name/)).toHaveValue("Codex Corner Cafe")
+      await page.getByTitle(legalName).click()
+      await expect(page.getByLabel(/Legal name/)).toHaveValue(legalName)
       await expect(page.getByLabel(/Role/)).toHaveValue("REPRESENTATIVE")
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document.documentElement.scrollWidth <=
+              document.documentElement.clientWidth,
+          ),
+        )
+        .toBe(true)
     }
     await page.screenshot({ path: testInfo.outputPath(`${account.role}-workspace.png`), fullPage: true })
 
