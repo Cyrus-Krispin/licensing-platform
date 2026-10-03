@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
@@ -209,16 +209,31 @@ describe("authentication workspace", () => {
     render(<App />);
 
     await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    const requirements = screen.getByRole("region", {
+      name: "Evidence requirements",
+    });
+    const leaseRequirement = within(requirements).getByRole("listitem", {
+      name: "Lease Evidence requirement",
+    });
+    const ownershipRequirement = within(requirements).getByRole("listitem", {
+      name: "Ownership Evidence requirement",
+    });
     expect(
-      screen.getByText("Required because the premises are rented."),
+      within(leaseRequirement).getByText(
+        "Required because the premises are rented.",
+      ),
     ).toBeVisible();
     await userEvent.selectOptions(screen.getByLabelText(/Tenure/), "OWNED");
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(
-      screen.getByText("Required because the premises are rented."),
+      within(leaseRequirement).getByText(
+        "Required because the premises are rented.",
+      ),
     ).toBeVisible();
     expect(
-      screen.queryByText("Required because the premises are owned."),
+      within(ownershipRequirement).queryByText(
+        "Required because the premises are owned.",
+      ),
     ).not.toBeInTheDocument();
 
     resolveSave?.(
@@ -228,8 +243,14 @@ describe("authentication workspace", () => {
         documentRequests: requests("OWNED"),
       }),
     );
+    await screen.findByText(/Saved revision 2/);
+    const savedRequirements = screen.getByRole("region", {
+      name: "Evidence requirements",
+    });
     expect(
-      await screen.findByText("Required because the premises are owned."),
+      await within(savedRequirements).findByText(
+        "Required because the premises are owned.",
+      ),
     ).toBeVisible();
   });
 
@@ -422,7 +443,13 @@ describe("authentication workspace", () => {
     await userEvent.type(legalName, "My cafe");
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(await screen.findByText("new@example.test")).toBeVisible();
+    const conflictComparison = await screen.findByRole("alert");
+    expect(
+      within(conflictComparison).getByText("Saved draft changed"),
+    ).toBeVisible();
+    expect(
+      within(conflictComparison).getByText("new@example.test"),
+    ).toBeVisible();
     expect(legalName).toHaveValue("My cafe");
     expect(legalName).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();

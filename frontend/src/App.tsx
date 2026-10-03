@@ -68,6 +68,13 @@ function formValue(field: DraftField, value: FormDataEntryValue | null) {
   return normalized;
 }
 
+function documentRequestLabel(type: string) {
+  return type
+    .split("_")
+    .map((part) => part[0] + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function OperatorDrafts() {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
@@ -288,7 +295,10 @@ function OperatorDrafts() {
               {fieldNames.map((field) => (
                 <div key={field} className="min-w-0">
                   <dt className="font-medium">{fieldLabels[field]}</dt>
-                  <dd className="truncate" title={String(conflict[field] ?? "Not set")}>
+                  <dd
+                    className="truncate"
+                    title={String(conflict[field] ?? "Not set")}
+                  >
                     {String(conflict[field] ?? "Not set")}
                   </dd>
                 </div>
@@ -496,13 +506,11 @@ function OperatorDrafts() {
           {(draft.documentRequests ?? []).map((request) => (
             <li
               key={request.id}
+              aria-label={`${documentRequestLabel(request.type)} requirement`}
               className="rounded-md border border-border p-3 text-sm"
             >
               <p className="font-medium">
-                {request.type
-                  .split("_")
-                  .map((part) => part[0] + part.slice(1).toLowerCase())
-                  .join(" ")}
+                {documentRequestLabel(request.type)}
               </p>
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 {request.applicability === "NEEDS_INPUT"

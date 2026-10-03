@@ -31,8 +31,21 @@ for (const account of [
       await page.getByLabel(/Tenure/).selectOption("RENTED")
       await page.getByRole("button", { name: "Save draft" }).click()
       await expect(page.getByRole("status").filter({ hasText: "Saved revision 1" })).toBeVisible()
-      await expect(page.getByText("Required because the premises are rented.")).toBeVisible()
-      await expect(page.getByText("Required because the applicant is a representative.")).toBeVisible()
+      const requirements = page.getByRole("region", { name: "Evidence requirements" })
+      const leaseRequirement = requirements.getByRole("listitem", {
+        name: "Lease Evidence requirement",
+      })
+      const representativeRequirement = requirements.getByRole("listitem", {
+        name: "Representative Authorization requirement",
+      })
+      await expect(
+        leaseRequirement.getByText("Required because the premises are rented."),
+      ).toBeVisible()
+      await expect(
+        representativeRequirement.getByText(
+          "Required because the applicant is a representative.",
+        ),
+      ).toBeVisible()
       await page.reload()
       await page.getByTitle(legalName).click()
       await expect(page.getByLabel(/Legal name/)).toHaveValue(legalName)
