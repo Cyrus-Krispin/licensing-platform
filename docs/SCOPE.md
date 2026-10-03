@@ -1,0 +1,111 @@
+# Regulatory and Licensing Platform — MVP Scope
+
+## Objective and scope boundary
+
+Build a product for operators applying for food business licences and officers reviewing their applications in a **fictional jurisdiction**. The initial domain covers **fixed-premises cafés and restaurants**. Product rules and document requirements are fictional assumptions, not assertions of legal compliance.
+
+Implement the selected features of **use case 1: Operator Application Submission & Resubmission** and **use case 2: Officer Application Review & Feedback** from the Software Engineering Assessment. Retain the pre-site review statuses plus approved/rejected. Defer site/post-site states and workflows, including use case 3. This is deliberately scoped coverage, not full use case 2 or all-status compliance. The brief describes a three-day MVP; scope decisions here follow the agreed product requirements rather than treating that time limit as the deciding constraint.
+
+This document records accepted requirements and planned coverage. It does not claim that the product is implemented or that every detailed design decision is settled.
+
+## Users and access
+
+- One web product provides role-specific operator and officer workspaces.
+- Normal local setup seeds exactly **one operator and one officer** in persistent storage. Each application has one operator owner; shared business teams are excluded.
+- Real sign-in uses Spring Security within the backend. Store password hashes; enforce roles and ownership on the server, including document access. Do not compare credentials against hardcoded runtime values.
+- Provide convenient default **local development** credentials through setup. They are not a production credential policy. Do not commit secrets or deployment credentials.
+- No public registration or user-management UI. Independent security test fixtures may exercise other identities without expanding normal product setup.
+
+## Application information and documents
+
+The following fields are required unless marked optional or conditional. Exact enumerations, formats, and cross-field validation remain follow-up design work.
+
+| Section | Information |
+| --- | --- |
+| Business identity | Legal name, registration number, business structure; optional trading name |
+| Applicant/contact | Applicant name, role, email, phone |
+| Premises | Address, owned/rented tenure; unit number when applicable; optional premises name |
+| Food operations | Business type, at least one preparation activity, at least one service mode (dine-in/takeaway/delivery), operating hours or “closed” for each day, proposed opening date |
+| Declaration | Confirmation of accuracy and authority to apply |
+
+Required evidence: business registration, premises layout, and permission to use the premises for a food business. Lease evidence applies to rented premises; ownership evidence applies to owned premises. An authorization letter is required when the applicant acts as a representative. Officers may request missing or additional evidence during corrections.
+
+Accept **PDF, JPEG, and PNG**, at most **10 MB per file**, with one current file per document request. Replacing a document creates a new file record; previously submitted files remain available to their submission versions. Validate formats and fictional product consistency on key paths, without implying checks against an official register or real jurisdiction's laws.
+
+## Functional coverage
+
+### Operator submission
+
+- Create and save a working draft, enter the complete application, and upload documents through drag-and-drop or file selection.
+- Show overall completion progress and basic, clearly labelled **simulated document verification status per uploaded document**, updating as the simulated check runs without a manual page reload. No live AI integration or dual live/mock modes.
+- Block initial submission for missing mandatory fields/documents, invalid input, or failed uploads. Simulated AI warnings and flagged verification issues are not included at this stage.
+- Preserve a fixed submission snapshot of field values and document references, with who submitted it and when. Ordinary draft saves update the working draft rather than creating submission versions.
+
+### Officer review and contextual corrections
+
+- Provide an organised full view of submitted form data and documents, including the basic simulated verification status.
+- Let the officer request corrections on **individual fields and documents**, including requests for missing/additional documents. Provide predefined comment templates for common issues.
+- Present officer feedback prominently at the top of the operator application, with links to the specific field or document concerned.
+- Let operators update requested fields/documents without re-entering retained information. Do not silently permit whole-section or whole-application edits, or automatically unlock dependent fields.
+- On resubmission, preserve a new fixed snapshot, highlight changes, and allow officers to open and compare prior submissions with the latest one. Unchanged files can be referenced by multiple versions without duplicating their contents.
+- Keep corrected issues awaiting officer review. Only the officer confirms resolution or requests a further correction; resubmission does not automatically resolve an issue.
+- Support unlimited feedback/resubmission rounds without loss of application data. Retain feedback, submitted values/files, resolution history, actors, timestamps, and workflow decisions in the audit history.
+- Keep cases discoverable across included status changes and filters; verify that queue/filter behaviour cannot silently lose a case. All-status coverage across deferred stages is not included.
+
+### Decisions and notifications
+
+- One officer may request corrections, approve, or reject after **document review**. No inspection prerequisite is imposed in the fictional jurisdiction.
+- Approval records the officer, timestamp, and decision explanation. Licence numbers and certificate issuance are deferred.
+- Rejection is final, requires an explanation, and retains the application and history. A rejected case cannot continue through corrections. Reopening and appeals are excluded.
+- Status changes generate persistent **in-app operator notifications**; resubmission generates an officer notification. Notifications remain available when the recipient next signs in, including when they were logged out during the event.
+- In-app delivery is the only notification channel. No external email delivery or local email-capture service. Separate browser sessions can exercise both roles simultaneously.
+
+## Status assumptions and brief ambiguities
+
+Retain the brief's labels for the included pre-site workflow even though actual site assessments are deferred:
+
+| Internal status | Officer label | Operator label |
+| --- | --- | --- |
+| Application Received | Application Received | Submitted |
+| Under Review | Under Review | Under Review |
+| Pending Pre-Site Resubmission | Pending Pre-Site Resubmission | Pending Pre-Site Resubmission |
+| Pre-Site Resubmitted | Pre-Site Resubmitted | Pre-Site Resubmitted |
+| Approved | Approved | Approved |
+| Rejected | Rejected | Rejected |
+
+The product's working **Draft** state is separate from the assessment mapping. The brief's mapping table defines labels, not a complete transition graph. Exact permitted transitions and draft/review entry behaviour must be specified before implementation. Site/post-site states and separate approval routing are deferred. Queue/filter/history verification covers the included subset; it does not claim coverage of all original statuses.
+
+The source mapping exposes “Pending Approval” to operators, but the later constraint prohibits exposing the internal approval stage. **Prioritise that prohibition.** A separate approval-routing stage is deferred in the accepted one-officer scope; if introduced later, its internal state must remain hidden through operator labels, codes, history, filters, and notifications. Ordinary submission, review, and correction statuses remain visible.
+
+## Stack and architecture rationale
+
+**Accepted frontend design constraint:** use existing **shadcn/ui components throughout**, with a black-background dark product UI closely matching the shadcn website's established look and feel. Prefer official component patterns and theme tokens; use only minimal layout/composition styling where necessary. Avoid bespoke widgets, custom widget behaviour, and an independently invented visual system. This does not require cloning the marketing website or remove the licensing workflow/business logic. Detailed screen composition remains open within this constraint.
+
+Use one monorepo with separate frontend and backend folders: **React, TypeScript, and Vite** for the frontend, and **Java Spring Boot with Spring Security** for the backend. This separation gives the frontend responsibility for the role-specific experience while the backend owns authentication, authorization, validation, and workflow rules. **PostgreSQL** stores accounts, application/workflow data, submission versions, notifications, audit history, and document metadata. Actual document files live in a persistent named **Docker volume** and are served only through the authorized backend; immutable file references preserve earlier submissions. **Docker Compose** runs separate frontend, backend, and database containers with persistent storage, providing a reproducible setup without externally hosted authentication or email services.
+
+File writes and database updates are not one atomic transaction. Plan failure cleanup/reconciliation so unsuccessful uploads or submissions do not leave broken references or unintended files. Use database transactions for related workflow records and notifications, and protect against stale or duplicate actions without silently overwriting accepted work.
+
+## Explicit mocks and deferrals
+
+- **Simulated document verification:** basic per-document status only; no live AI integration. **AI warnings, verification results with flagged issues, and officer visibility of AI flags are deferred pending a later decision.** This is a deliberate gap against the original use cases' AI-result/flagged-issue criteria; do not claim those criteria are fully implemented.
+- **Site/post-site states and workflows:** deferred, including scheduling, use case 3 inspection checklist/on-site capture/post-site responses, and all-status queue/filter coverage. Separate approval routing is also deferred; the current scope permits one officer's document-based final decision.
+- **Licence issuance, certificates, reopening, and appeals:** excluded to keep the final-decision boundary clear.
+- **Registration, user administration, business teams, and separate identity service:** excluded; the agreed seeded accounts and backend authentication serve the initial users.
+- **Email and local email capture:** excluded in favour of persistent in-app notifications.
+- **Dedicated object-storage service:** deferred; the agreed volume-backed file storage meets the initial Docker setup.
+- **Other licence categories, hotels, and non-fixed-premises businesses:** excluded from the agreed domain.
+
+## Quality, verification, and deliverables
+
+Provide a working repository (or assessment zip), this `SCOPE.md`, and a README with reproducible Docker setup, local sign-in instructions, stack rationale, known limitations, and “What I would do next.” Document AI-assisted development separately from the product's simulated verification: include tools/tasks, representative prompts, review and validation, corrections, and discarded/unhelpful output in the README's **AI Usage** section.
+
+Validate key inputs on the backend and provide actionable errors without losing saved information. Verify role/ownership isolation, authenticated document access, and absence of committed secrets. Exercise initial submission, targeted corrections and missing-document uploads, multiple resubmission rounds, officer-confirmed resolution, version comparisons and retained files, final approval/rejection, persistent notifications, and discoverability across every included status/filter. Verify the scoped role-label mapping, approval-stage privacy, and retained history. Include failure-path checks for invalid uploads, partial storage failures, and stale/duplicate actions, plus persistence across container restarts. These are planned behavioural checks, not claims of passing tests, full assessment-state coverage, or arbitrary performance targets.
+
+## Open follow-up decisions
+
+- Exact field enumerations/formats, conditional-document rules in edge cases, and whether any correction may unlock a dependent field.
+- Complete scoped transition rules, review entry behaviour, editing locks, and remaining simulated-status semantics. Site/post-site/approval-routing coverage is deferred, not an unresolved request to expand this scope. AI warnings/results remain deferred rather than assumed included.
+- UI layout, navigation, review/comparison presentation, templates, and notification read-state behaviour within the accepted shadcn/ui dark-theme constraint. The question of explicitly adding requests during an open correction round remains unanswered.
+- Dependency versions, auth/session configuration, API/data-model details, and specific verification tooling.
+- Whether a hosted deployment is required beyond reproducible Docker setup, and its operational configuration.
+- The intended development skill set's exact name remains unconfirmed. GitHub issues automatically dispatched to Codex cloud, followed by verified/reviewed PRs, are an eventual workflow goal; capabilities/triggers must be verified and authorized before configuration. No issue publishing or automation setup is implied by this scope document.
