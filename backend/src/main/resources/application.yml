@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://db:5432/licensing}
+    username: ${DATABASE_USER:licensing}
+    password: ${DATABASE_PASSWORD:local-only-database-password}
+  session:
+    jdbc:
+      initialize-schema: always
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SECURE_COOKIES:false}
+management.endpoints.web.exposure.include: health
+management.endpoint.health.probes.enabled: true

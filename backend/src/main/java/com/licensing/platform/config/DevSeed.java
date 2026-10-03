@@ -1,0 +1,3 @@
+package com.licensing.platform.config;
+import org.springframework.boot.CommandLineRunner; import org.springframework.context.annotation.*; import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.security.crypto.password.PasswordEncoder;
+@Configuration @Profile("dev") public class DevSeed { @Bean CommandLineRunner seed(JdbcTemplate db, PasswordEncoder encoder){ return a->{ insert(db,encoder,"operator","local-operator-password","OPERATOR"); insert(db,encoder,"officer","local-officer-password","OFFICER"); }; } private void insert(JdbcTemplate db,PasswordEncoder e,String u,String p,String r){ db.update("insert into app_user(username,password_hash,role) values (?,?,?) on conflict (username) do nothing",u,e.encode(p),r); } }
