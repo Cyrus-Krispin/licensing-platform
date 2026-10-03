@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { login, logout } from "./api";
+import { createDraft, listDrafts, login, logout, saveDraft } from "./api";
 
 beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 
@@ -103,4 +103,22 @@ test("returns role workspace data on success", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(json(data));
   await expect(workspace("OFFICER")).resolves.toEqual(data);
   expect(fetch).toHaveBeenCalledWith("/api/workspaces/officer");
+});
+
+test("lists, creates, and saves drafts with fresh CSRF", async () => {
+  const draft={id:"d1",revision:0,status:"DRAFT"};
+  vi.mocked(fetch).mockResolvedValueOnce(json([draft]));
+  await expect(listDrafts()).resolves.toEqual([draft]);
+  vi.mocked(fetch).mockResolvedValueOnce(json({token:"a",headerName:"X-XSRF-TOKEN"})).mockResolvedValueOnce(json(draft,201));
+  await expect(createDraft("retry-key")).resolves.toEqual(draft);
+  expect(fetch).toHaveBeenLastCalledWith("/api/applications",expect.objectContaining({method:"POST",headers:expect.objectContaining({"Idempotency-Key":"retry-key","X-XSRF-TOKEN":"a"})}));
+  vi.mocked(fetch).mockResolvedValueOnce(json({token:"b",headerName:"X-XSRF-TOKEN"})).mockResolvedValueOnce(json({...draft,revision:1}));
+  await expect(saveDraft("d1",0,{legalName:"Cafe"})).resolves.toMatchObject({revision:1});
+});
+
+test("returns draft field and stale-save errors", async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(json({token:"a",headerName:"X-XSRF-TOKEN"})).mockResolvedValueOnce(json({message:"Correct fields",fieldErrors:{applicantEmail:"Enter a valid email address"}},422));
+  await expect(saveDraft("d1",0,{applicantEmail:"bad"})).rejects.toMatchObject({status:422,fieldErrors:{applicantEmail:"Enter a valid email address"}});
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:500}));
+  await expect(listDrafts()).rejects.toThrow("temporarily unavailable");
 });

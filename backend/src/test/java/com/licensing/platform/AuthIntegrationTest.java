@@ -32,6 +32,8 @@ class AuthIntegrationTest {
 
     @BeforeEach
     void seed() {
+        database.update("delete from draft_create_retry");
+        database.update("delete from application_draft");
         database.update("delete from app_user");
         database.update(
                 "insert into app_user values (?, ?, ?)",

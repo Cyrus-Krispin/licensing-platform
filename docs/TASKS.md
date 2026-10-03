@@ -111,10 +111,12 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Deliver:** an operator creates an owned application and saves the business/applicant portions of a working draft.
 
-- [ ] Draft creation/list/detail and field saves persist the agreed identity/contact schema, including optional trading name and representative role.
-- [ ] Incomplete drafts are saveable; invalid supplied values have linked errors and preserve other saved/recoverable values. Contact email does not alter login identity or introduce email notifications.
-- [ ] Sign out/in and reload recover saved data. Officers cannot see unsubmitted drafts; other test owners cannot access them.
-- [ ] Draft saves do not create immutable submission versions. Use the agreed revision-conflict behaviour from the outset.
+- [x] Draft creation/list/detail and field saves persist the agreed identity/contact schema, including optional trading name and representative role.
+- [x] Incomplete drafts are saveable; invalid supplied values have linked errors and preserve other saved/recoverable values. Contact email does not alter login identity or introduce email notifications.
+- [x] Sign out/in and reload recover saved data. Officers cannot see unsubmitted drafts; other test owners cannot access them.
+- [x] Draft saves do not create immutable submission versions. Expected revisions prevent competing saves from overwriting each other.
+
+T05 accepts only the business/applicant validation table as routine defaults. Creation uses an actor-scoped idempotency key, PATCH omission leaves values unchanged, explicit null clears an optional or incomplete value, and stale saves return conflict guidance without clearing client input. Representative authorization evidence remains T06 work; all other proposal markers, including the correction-completeness exception, remain unresolved.
 
 **Validation:** browser save/reopen, API ownership/role and draft-validation boundaries, and competing-save conflict check.
 
