@@ -37,17 +37,21 @@ public class DraftService {
                     "applicantName",
                     "applicantRole",
                     "applicantEmail",
-                    "applicantPhone");
+                    "applicantPhone",
+                    "premisesAddress",
+                    "premisesName",
+                    "unitApplicable",
+                    "unitNumber",
+                    "tenure");
     private static final Map<String, String> COLUMNS =
-            Map.of(
-                    "legalName", "legal_name",
-                    "tradingName", "trading_name",
-                    "registrationNumber", "registration_number",
-                    "structure", "business_structure",
-                    "applicantName", "applicant_name",
-                    "applicantRole", "applicant_role",
-                    "applicantEmail", "applicant_email",
-                    "applicantPhone", "applicant_phone");
+            Map.ofEntries(
+                    Map.entry("legalName", "legal_name"), Map.entry("tradingName", "trading_name"),
+                    Map.entry("registrationNumber", "registration_number"), Map.entry("structure", "business_structure"),
+                    Map.entry("applicantName", "applicant_name"), Map.entry("applicantRole", "applicant_role"),
+                    Map.entry("applicantEmail", "applicant_email"), Map.entry("applicantPhone", "applicant_phone"),
+                    Map.entry("premisesAddress", "premises_address"), Map.entry("premisesName", "premises_name"),
+                    Map.entry("unitApplicable", "unit_applicable"), Map.entry("unitNumber", "unit_number"),
+                    Map.entry("tenure", "tenure"));
     private static final Pattern REGISTRATION = Pattern.compile("[A-Za-z0-9/-]{3,40}");
     private static final Pattern EMAIL =
             Pattern.compile(
@@ -59,7 +63,8 @@ public class DraftService {
             """
             select id, revision, status, legal_name, trading_name, registration_number,
                    business_structure, applicant_name, applicant_role, applicant_email,
-                   applicant_phone, updated_at
+                   applicant_phone, premises_address, premises_name, unit_applicable,
+                   unit_number, tenure, updated_at
               from application_draft
             """;
 
@@ -171,6 +176,7 @@ public class DraftService {
                 owner,
                 Timestamp.from(now),
                 Timestamp.from(now));
+        insertRequests(id, null, null);
         database.update(
                 """
                 insert into draft_create_retry(
@@ -191,6 +197,12 @@ public class DraftService {
                     HttpStatus.BAD_REQUEST, "invalid_request", "expectedRevision is required");
         }
         Map<String, Object> values = canonicalPayload(patch.fields() == null ? Map.of() : patch.fields());
+        Draft current = database.query(BASE_SELECT + " where id=? and owner_username=? and status='DRAFT' for update", mapper(), id, owner)
+                .stream().findFirst().orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found", "Draft not found"));
+        if (current.revision() != patch.expectedRevision()) {
+            throw new ApiException(HttpStatus.CONFLICT, "stale_revision", "This draft changed elsewhere. Reload the saved draft; your unsaved values have been retained.");
+        }
+        validateConsistency(current, values);
         List<String> assignments = new ArrayList<>();
         List<Object> arguments = new ArrayList<>();
         values.forEach(
@@ -216,23 +228,40 @@ public class DraftService {
                                 + String.join(", ", assignments)
                                 + " where id=? and owner_username=? and status='DRAFT' and revision=?",
                         arguments.toArray());
-        if (changed == 0) {
-            boolean owned =
-                    database.queryForObject(
-                                    "select count(*) from application_draft where id=? and owner_username=?",
-                                    Integer.class,
-                                    id,
-                                    owner)
-                            > 0;
-            if (!owned) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "not_found", "Draft not found");
-            }
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "stale_revision",
-                    "This draft changed elsewhere. Reload the saved draft; your unsaved values have been retained.");
-        }
+        if (changed == 0) throw new IllegalStateException("Locked draft disappeared during save");
+        String tenure = values.containsKey("tenure") ? (String) values.get("tenure") : current.tenure();
+        String role = values.containsKey("applicantRole") ? (String) values.get("applicantRole") : current.applicantRole();
+        updateRequests(id, tenure, role);
         return get(id, owner);
+    }
+
+    private void validateConsistency(Draft current, Map<String, Object> values) {
+        Boolean applicable = values.containsKey("unitApplicable") ? (Boolean) values.get("unitApplicable") : current.unitApplicable();
+        String number = values.containsKey("unitNumber") ? (String) values.get("unitNumber") : current.unitNumber();
+        if (Boolean.FALSE.equals(applicable) && number != null) {
+            throw new ValidationException(Map.of("unitNumber", "Clear the unit number before choosing no unit"));
+        }
+    }
+
+    private void insertRequests(UUID id, String tenure, String role) {
+        for (String type : List.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION", "LEASE_EVIDENCE", "OWNERSHIP_EVIDENCE", "REPRESENTATIVE_AUTHORIZATION")) {
+            RequestState state = requestState(type, tenure, role);
+            database.update("insert into document_request(id, application_id, request_type, applicability, reason) values (?, ?, ?, ?, ?)", UUID.randomUUID(), id, type, state.applicability(), state.reason());
+        }
+    }
+
+    private void updateRequests(UUID id, String tenure, String role) {
+        for (String type : List.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION", "LEASE_EVIDENCE", "OWNERSHIP_EVIDENCE", "REPRESENTATIVE_AUTHORIZATION")) {
+            RequestState state = requestState(type, tenure, role);
+            database.update("update document_request set applicability=?, reason=? where application_id=? and request_type=?", state.applicability(), state.reason(), id, type);
+        }
+    }
+
+    private RequestState requestState(String type, String tenure, String role) {
+        if (Set.of("BUSINESS_REGISTRATION", "PREMISES_LAYOUT", "FOOD_USE_PERMISSION").contains(type)) return new RequestState("APPLICABLE", "Required for every application.");
+        if (type.equals("LEASE_EVIDENCE")) return tenure == null ? new RequestState("NEEDS_INPUT", "Set the premises tenure to determine whether lease evidence is required.") : tenure.equals("RENTED") ? new RequestState("APPLICABLE", "Required because the premises are rented.") : new RequestState("NOT_APPLICABLE", "Not required because the premises are owned.");
+        if (type.equals("OWNERSHIP_EVIDENCE")) return tenure == null ? new RequestState("NEEDS_INPUT", "Set the premises tenure to determine whether ownership evidence is required.") : tenure.equals("OWNED") ? new RequestState("APPLICABLE", "Required because the premises are owned.") : new RequestState("NOT_APPLICABLE", "Not required because the premises are rented.");
+        return role == null ? new RequestState("NEEDS_INPUT", "Set the applicant role to determine whether representative authorization is required.") : role.equals("REPRESENTATIVE") ? new RequestState("APPLICABLE", "Required because the applicant is a representative.") : new RequestState("NOT_APPLICABLE", "Not required because the applicant is not a representative.");
     }
 
     private void lockCreateReceipt(String owner, String key) {
@@ -278,7 +307,9 @@ public class DraftService {
                 (field, value) -> {
                     if (!FIELDS.contains(field)) {
                         errors.put(field, "Unknown field");
-                    } else if (value != null && !(value instanceof String)) {
+                    } else if (field.equals("unitApplicable") && value != null && !(value instanceof Boolean)) {
+                        errors.put(field, "Must be true, false, or null");
+                    } else if (!field.equals("unitApplicable") && value != null && !(value instanceof String)) {
                         errors.put(field, "Must be text or null");
                     }
                 });
@@ -287,6 +318,9 @@ public class DraftService {
         checkLength(values, errors, "applicantName", 1, 120);
         checkLength(values, errors, "applicantEmail", 1, 254);
         checkLength(values, errors, "applicantPhone", 1, 32);
+        checkLength(values, errors, "premisesAddress", 1, 500);
+        checkLength(values, errors, "premisesName", 0, 200);
+        checkLength(values, errors, "unitNumber", 1, 40);
         string(values, "registrationNumber")
                 .filter(value -> !REGISTRATION.matcher(value).matches())
                 .ifPresent(
@@ -304,6 +338,7 @@ public class DraftService {
                 errors,
                 "applicantRole",
                 Set.of("OWNER", "DIRECTOR", "EMPLOYEE", "REPRESENTATIVE"));
+        enumValue(values, errors, "tenure", Set.of("OWNED", "RENTED"));
         string(values, "applicantEmail")
                 .filter(value -> !EMAIL.matcher(value).matches())
                 .ifPresent(ignored -> errors.put("applicantEmail", "Enter a valid email address"));
@@ -359,8 +394,9 @@ public class DraftService {
         if (value == null) {
             return null;
         }
+        if (field.equals("unitApplicable")) return value;
         String normalized = ((String) value).trim();
-        return field.equals("tradingName") && normalized.isBlank() ? null : normalized;
+        return (field.equals("tradingName") || field.equals("premisesName")) && normalized.isBlank() ? null : normalized;
     }
 
     private String fingerprint(Map<String, Object> canonicalPayload) {
@@ -381,9 +417,11 @@ public class DraftService {
     }
 
     private RowMapper<Draft> mapper() {
-        return (resultSet, row) ->
-                new Draft(
-                        resultSet.getObject("id", UUID.class),
+        return (resultSet, row) -> {
+                UUID id = resultSet.getObject("id", UUID.class);
+                List<DocumentRequest> requests = database.query("select id, request_type, applicability, reason from document_request where application_id=? order by request_type", (rs, index) -> new DocumentRequest(rs.getObject("id", UUID.class), rs.getString("request_type"), rs.getString("applicability"), rs.getString("reason")), id);
+                return new Draft(
+                        id,
                         resultSet.getLong("revision"),
                         resultSet.getString("status"),
                         resultSet.getString("legal_name"),
@@ -394,10 +432,16 @@ public class DraftService {
                         resultSet.getString("applicant_role"),
                         resultSet.getString("applicant_email"),
                         resultSet.getString("applicant_phone"),
+                        resultSet.getString("premises_address"), resultSet.getString("premises_name"),
+                        (Boolean) resultSet.getObject("unit_applicable"), resultSet.getString("unit_number"),
+                        resultSet.getString("tenure"), requests,
                         resultSet.getTimestamp("updated_at").toInstant());
+        };
     }
 
     private record CreateReceipt(String payloadHash, UUID applicationId) {}
+    private record RequestState(String applicability, String reason) {}
+    public record DocumentRequest(UUID id, String type, String applicability, String reason) {}
 
     public record Patch(Long expectedRevision, Map<String, Object> fields) {}
 
@@ -413,5 +457,11 @@ public class DraftService {
             String applicantRole,
             String applicantEmail,
             String applicantPhone,
+            String premisesAddress,
+            String premisesName,
+            Boolean unitApplicable,
+            String unitNumber,
+            String tenure,
+            List<DocumentRequest> documentRequests,
             Instant updatedAt) {}
 }

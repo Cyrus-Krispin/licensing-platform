@@ -126,12 +126,14 @@ T05 accepts only the business/applicant validation table as routine defaults. Cr
 
 **Deliver:** the draft records premises and shows the correct applicable evidence requests.
 
-- [ ] Address, optional premises name, conditional unit, and tenure follow reviewed rules.
-- [ ] Registration/layout/food-use permission requests exist for every draft; lease/ownership and representative authorization requirements follow current inputs.
-- [ ] Initial-draft changes recalculate requirements without deleting retained data or existing document records. Show why a conditional request is needed.
-- [ ] Persist request identities so later feedback and submission versions can link to individual document requests.
+- [x] Address, optional premises name, conditional unit, and tenure follow reviewed rules.
+- [x] Registration/layout/food-use permission requests exist for every draft; lease/ownership and representative authorization requirements follow current inputs.
+- [x] Initial-draft changes recalculate requirements without deleting retained data or existing document records. Show why a conditional request is needed.
+- [x] Persist request identities so later feedback and submission versions can link to individual document requests.
 
 **Validation:** browser tenure/unit/representative changes and API requirement calculations. File bytes/upload UI are delivered by T08, not this task.
+
+T06 keeps incomplete premises values saveable, validates explicit values and the resulting unit combination atomically, and recalculates all six retained request records in the revision-checked save transaction. The product distinguishes required, known-not-required, and missing-input conditions without claiming uploads, evidence success, progress, or submission readiness. H2 provides the labelled portable local check; the required PostgreSQL CI job verifies migrations and races against PostgreSQL, while Compose/Playwright verifies persisted product recovery and conflict safety.
 
 ## T07 — Complete operations, declarations, and progress
 

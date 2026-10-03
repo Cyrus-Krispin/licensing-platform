@@ -159,7 +159,13 @@ class DraftHttpIntegrationTest {
                         Map.entry("applicantEmail", "a@b..c"),
                         Map.entry("applicantEmail", "x".repeat(249) + "@x.test"),
                         Map.entry("applicantPhone", "+1 (23)-45"),
-                        Map.entry("applicantPhone", "+12 345 678 901 234 567"));
+                        Map.entry("applicantPhone", "+12 345 678 901 234 567"),
+                        Map.entry("premisesAddress", " "),
+                        Map.entry("premisesAddress", "x".repeat(501)),
+                        Map.entry("premisesName", "x".repeat(201)),
+                        Map.entry("unitNumber", " "),
+                        Map.entry("unitNumber", "x".repeat(41)),
+                        Map.entry("tenure", "BORROWED"));
         for (Map.Entry<String, String> invalid : invalidFields) {
             operator.perform(
                             write(
@@ -177,6 +183,13 @@ class DraftHttpIntegrationTest {
                                 .header("Idempotency-Key", "invalid-type"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.fieldErrors.legalName").value("Must be text or null"));
+        for (String invalidBoolean : List.of("\"true\"", "1", "{}")) {
+            operator.perform(
+                            write(post("/api/applications"), "{\"unitApplicable\":" + invalidBoolean + "}")
+                                    .header("Idempotency-Key", UUID.randomUUID().toString()))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.fieldErrors.unitApplicable").exists());
+        }
         operator.perform(
                         write(post("/api/applications"), "{\"unknown\":\"value\"}")
                                 .header("Idempotency-Key", "unknown-field"))

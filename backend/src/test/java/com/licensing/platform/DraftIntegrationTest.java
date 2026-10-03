@@ -2,6 +2,7 @@ package com.licensing.platform;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -9,6 +10,7 @@ import com.licensing.platform.draft.DraftService;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -81,6 +83,48 @@ class DraftIntegrationTest {
                 drafts.save(
                         draft.id(), "owner-a", new DraftService.Patch(1L, clear));
         assertNull(cleared.tradingName());
+    }
+
+    @Test
+    void premisesConditionsChangeWithoutReplacingRequestIdentities() {
+        var draft = drafts.create("owner-a", "premises", Map.of());
+        Map<String, UUID> initial = draft.documentRequests().stream().collect(
+                java.util.stream.Collectors.toMap(DraftService.DocumentRequest::type, DraftService.DocumentRequest::id));
+
+        var rented = drafts.save(draft.id(), "owner-a", new DraftService.Patch(0L,
+                Map.of("premisesAddress", "  10 Market Street  ", "premisesName", "  ",
+                        "unitApplicable", true, "unitNumber", " Suite 2 ", "tenure", "RENTED",
+                        "applicantRole", "REPRESENTATIVE")));
+        assertEquals("10 Market Street", rented.premisesAddress());
+        assertNull(rented.premisesName());
+        assertEquals("Suite 2", rented.unitNumber());
+        assertEquals("APPLICABLE", request(rented, "LEASE_EVIDENCE").applicability());
+        assertEquals("NOT_APPLICABLE", request(rented, "OWNERSHIP_EVIDENCE").applicability());
+        assertEquals("APPLICABLE", request(rented, "REPRESENTATIVE_AUTHORIZATION").applicability());
+
+        var owned = drafts.save(draft.id(), "owner-a", new DraftService.Patch(1L,
+                Map.of("tenure", "OWNED", "applicantRole", "OWNER")));
+        assertEquals("NOT_APPLICABLE", request(owned, "LEASE_EVIDENCE").applicability());
+        assertEquals("APPLICABLE", request(owned, "OWNERSHIP_EVIDENCE").applicability());
+        assertEquals("NOT_APPLICABLE", request(owned, "REPRESENTATIVE_AUTHORIZATION").applicability());
+        owned.documentRequests().forEach(item -> assertEquals(initial.get(item.type()), item.id()));
+        assertEquals(6, database.queryForObject("select count(*) from document_request where application_id=?", Integer.class, draft.id()));
+    }
+
+    @Test
+    void inconsistentUnitUpdateRollsBackFieldsRequestsAndRevision() {
+        var draft = drafts.create("owner-a", "unit-rollback", Map.of("tenure", "RENTED"));
+        UUID leaseId = request(draft, "LEASE_EVIDENCE").id();
+        assertThrows(RuntimeException.class, () -> drafts.save(draft.id(), "owner-a",
+                new DraftService.Patch(1L, Map.of("premisesAddress", "Changed", "unitApplicable", false, "unitNumber", "4"))));
+        var unchanged = drafts.get(draft.id(), "owner-a");
+        assertNull(unchanged.premisesAddress());
+        assertEquals(1, unchanged.revision());
+        assertEquals(leaseId, request(unchanged, "LEASE_EVIDENCE").id());
+    }
+
+    private DraftService.DocumentRequest request(DraftService.Draft draft, String type) {
+        return draft.documentRequests().stream().filter(item -> item.type().equals(type)).findFirst().orElseThrow();
     }
 
     @Test

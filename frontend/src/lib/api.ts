@@ -20,6 +20,10 @@ export type Draft = {
   registrationNumber: string | null; structure: string | null;
   applicantName: string | null; applicantRole: string | null;
   applicantEmail: string | null; applicantPhone: string | null;
+  premisesAddress?: string | null; premisesName?: string | null;
+  unitApplicable?: boolean | null; unitNumber?: string | null;
+  tenure?: "OWNED" | "RENTED" | null;
+  documentRequests?: Array<{ id: string; type: string; applicability: "APPLICABLE" | "NOT_APPLICABLE" | "NEEDS_INPUT"; reason: string }>;
 };
 export class ApiError extends Error {
   constructor(message: string, public status: number, public fieldErrors: Record<string, string> = {}) { super(message); }
@@ -45,7 +49,7 @@ export async function getDraft(id: string): Promise<Draft> {
 export async function createDraft(key: string): Promise<Draft> {
   return draftResponse(await csrfRequest("/api/applications", { method: "POST", headers: { "Idempotency-Key": key }, body: "{}" }));
 }
-export async function saveDraft(id: string, revision: number, fields: Record<string, string | null>): Promise<Draft> {
+export async function saveDraft(id: string, revision: number, fields: Record<string, string | boolean | null>): Promise<Draft> {
   return draftResponse(await csrfRequest(`/api/applications/${id}/draft`, { method: "PATCH", body: JSON.stringify({ expectedRevision: revision, fields }) }));
 }
 

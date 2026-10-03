@@ -25,9 +25,14 @@ const fieldNames = [
   "applicantRole",
   "applicantEmail",
   "applicantPhone",
+  "premisesAddress",
+  "premisesName",
+  "unitApplicable",
+  "unitNumber",
+  "tenure",
 ] as const;
 type DraftField = (typeof fieldNames)[number];
-type DraftValues = Record<DraftField, string | null>;
+type DraftValues = Record<DraftField, string | boolean | null>;
 
 const fieldLabels: Record<DraftField, string> = {
   legalName: "Legal name",
@@ -38,12 +43,29 @@ const fieldLabels: Record<DraftField, string> = {
   applicantRole: "Applicant role",
   applicantEmail: "Contact email",
   applicantPhone: "Phone",
+  premisesAddress: "Premises address",
+  premisesName: "Premises name",
+  unitApplicable: "Does the premises have a unit number?",
+  unitNumber: "Unit number",
+  tenure: "Tenure",
 };
 
 function draftValues(draft: api.Draft): DraftValues {
   return Object.fromEntries(
     fieldNames.map((field) => [field, draft[field] ?? null]),
   ) as DraftValues;
+}
+
+function formValue(field: DraftField, value: FormDataEntryValue | null) {
+  if (field === "unitApplicable") {
+    return value === "true" ? true : value === "false" ? false : null;
+  }
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    if (field === "tradingName" || field === "premisesName") return null;
+    return value !== "" && value !== null ? "" : null;
+  }
+  return normalized;
 }
 
 function OperatorDrafts() {
@@ -105,7 +127,7 @@ function OperatorDrafts() {
     const localValues = Object.fromEntries(
       fieldNames.map((field) => [
         field,
-        String(data.get(field) ?? "") || null,
+        formValue(field, data.get(field)),
       ]),
     ) as DraftValues;
     const baseValues = draftValues(draft);
@@ -118,6 +140,7 @@ function OperatorDrafts() {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
       setEditDefaults(null);
+      setEditorGeneration((current) => current + 1);
       setDrafts((current) =>
         current.map((item) => (item.id === saved.id ? saved : item)),
       );
@@ -139,6 +162,7 @@ function OperatorDrafts() {
         );
         if (failure.status !== 409 && committed) {
           setDraft(latest);
+          setEditDefaults(null);
           setDrafts((current) =>
             current.map((item) => (item.id === latest.id ? latest : item)),
           );
@@ -220,7 +244,7 @@ function OperatorDrafts() {
         id={name}
         name={name}
         defaultValue={
-          editDefaults ? (editDefaults[name] ?? "") : (draft[name] ?? "")
+          String(editDefaults ? (editDefaults[name] ?? "") : (draft[name] ?? ""))
         }
         disabled={saving || !!conflict}
         aria-invalid={!!errors[name]}
@@ -264,8 +288,8 @@ function OperatorDrafts() {
               {fieldNames.map((field) => (
                 <div key={field} className="min-w-0">
                   <dt className="font-medium">{fieldLabels[field]}</dt>
-                  <dd className="truncate" title={conflict[field] ?? "Not set"}>
-                    {conflict[field] ?? "Not set"}
+                  <dd className="truncate" title={String(conflict[field] ?? "Not set")}>
+                    {String(conflict[field] ?? "Not set")}
                   </dd>
                 </div>
               ))}
@@ -294,7 +318,7 @@ function OperatorDrafts() {
                 type="button"
                 onClick={() => {
                   setDraft(conflict);
-                  setEditDefaults({ ...conflict, ...conflictEdits });
+                  setEditDefaults({ ...conflict, ...conflictEdits } as api.Draft);
                   setDrafts((current) =>
                     current.map((item) =>
                       item.id === conflict.id ? conflict : item,
@@ -389,6 +413,54 @@ function OperatorDrafts() {
         {input("applicantEmail", "Contact email", true)}
         {input("applicantPhone", "Phone", true)}
       </fieldset>
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-3 font-medium">Premises</legend>
+        {input("premisesAddress", "Address", true)}
+        {input("premisesName", "Premises name")}
+        <div className="space-y-2">
+          <Label htmlFor="unitApplicable">Does the premises have a unit number?</Label>
+          <NativeSelect id="unitApplicable" name="unitApplicable"
+            defaultValue={String((editDefaults ? editDefaults.unitApplicable : draft.unitApplicable) ?? "")}
+            disabled={saving || !!conflict} aria-invalid={!!errors.unitApplicable}
+            aria-describedby={errors.unitApplicable ? "unitApplicable-error" : undefined} className="w-full">
+            <NativeSelectOption value="">Not set</NativeSelectOption>
+            <NativeSelectOption value="true">Yes</NativeSelectOption>
+            <NativeSelectOption value="false">No</NativeSelectOption>
+          </NativeSelect>
+          {errors.unitApplicable && <p id="unitApplicable-error" className="text-sm text-destructive">{errors.unitApplicable}</p>}
+        </div>
+        <div>
+          {input("unitNumber", "Unit number (required to submit when applicable)")}
+          <p className="mt-2 text-xs text-muted-foreground">If you choose no unit, clear a retained unit number before saving.</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="tenure">Tenure (required to submit)</Label>
+          <NativeSelect id="tenure" name="tenure"
+            defaultValue={String((editDefaults ? editDefaults.tenure : draft.tenure) ?? "")}
+            disabled={saving || !!conflict} aria-invalid={!!errors.tenure}
+            aria-describedby={errors.tenure ? "tenure-error" : undefined} className="w-full">
+            <NativeSelectOption value="">Not set</NativeSelectOption>
+            <NativeSelectOption value="OWNED">Owned</NativeSelectOption>
+            <NativeSelectOption value="RENTED">Rented</NativeSelectOption>
+          </NativeSelect>
+          {errors.tenure && <p id="tenure-error" className="text-sm text-destructive">{errors.tenure}</p>}
+        </div>
+      </fieldset>
+      <section aria-labelledby="requirements-heading" className="space-y-3">
+        <div>
+          <h3 id="requirements-heading" className="font-medium">Evidence requirements</h3>
+          <p className="text-sm text-muted-foreground">Requirements update when this draft is saved. File upload is not available yet.</p>
+        </div>
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {(draft.documentRequests ?? []).map((request) => (
+            <li key={request.id} className="rounded-md border border-border p-3 text-sm">
+              <p className="font-medium">{request.type.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join(" ")}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">{request.applicability === "NEEDS_INPUT" ? "More information needed" : request.applicability === "APPLICABLE" ? "Required" : "Not required"}</p>
+              <p className="mt-1 text-muted-foreground">{request.reason}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
       <p role="status" className="text-sm text-muted-foreground">
         {status}
       </p>
