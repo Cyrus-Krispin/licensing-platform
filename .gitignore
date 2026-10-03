@@ -6,3 +6,5 @@ backend/target/
 .DS_Store
 
 *.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/

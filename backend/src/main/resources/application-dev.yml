@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://db:5432/licensing}
+    username: ${DATABASE_USER:licensing}
+    password: ${DATABASE_PASSWORD:local-only-database-password}
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false

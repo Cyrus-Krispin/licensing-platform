@@ -324,4 +324,4 @@ The user authorized implementation, then prioritized the separate cloud-setup ch
 
 ## T04 implementation evidence (2026-10-03)
 
-The `feature/docker-role-sign-in` slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, including real PostgreSQL and Compose validation. Coverage is reported as an initial measurement; no arbitrary threshold is accepted yet. CD, rollback, production destination/secrets, and T02 product rules remain deferred. This progress note does not accept or amend any proposal markers above.
+The `feature/docker-role-sign-in` slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, including real PostgreSQL and Compose validation. Measured coverage establishes documented regression gates (frontend 75% statements/70% branches/75% functions/80% lines; backend 80% lines) without excluding authentication or business code. CD, rollback, production destination/secrets, and T02 product rules remain deferred. This progress note does not accept or amend any proposal markers above.

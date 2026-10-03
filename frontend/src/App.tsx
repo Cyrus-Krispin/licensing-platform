@@ -1,6 +1,150 @@
-import {FormEvent,useEffect,useState} from 'react'; import {Button} from './components/ui/Button';import {Input} from './components/ui/Input';import * as api from './lib/api';
-export default function App(){const [user,setUser]=useState<api.User|null>(null),[data,setData]=useState<api.Workspace|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
-useEffect(()=>{api.me().then(setUser).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[]); useEffect(()=>{if(user)api.workspace(user.role).then(setData).catch(e=>setError(e.message))},[user]);
-async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();setLoading(true);setError('');const fd=new FormData(e.currentTarget);try{setUser(await api.login(String(fd.get('username')),String(fd.get('password'))));}catch(e){setError((e as Error).message)}finally{setLoading(false)}}
-async function out(){setLoading(true);try{await api.logout();setUser(null);setData(null)}catch(e){setError((e as Error).message)}finally{setLoading(false)}}
-return <main><section className="card">{user?<><p className="eyebrow">Regulatory and licensing platform</p><h1>{data?.heading??'Loading workspace…'}</h1><p className="muted">Signed in as <strong>{user.username}</strong> · {user.role.toLowerCase()}</p><p>{data?.message}</p><Button onClick={out} disabled={loading}>Sign out</Button></>:<><p className="eyebrow">Regulatory and licensing platform</p><h1>Sign in</h1><p className="muted">Use your development operator or officer account.</p><form onSubmit={submit}><label htmlFor="username">Username</label><Input id="username" name="username" autoComplete="username" required/><label htmlFor="password">Password</label><Input id="password" name="password" type="password" autoComplete="current-password" required/>{error&&<p role="alert" className="error">{error}</p>}<Button disabled={loading}>{loading?'Please wait…':'Sign in'}</Button></form></>}</section></main>}
+import { FormEvent, useCallback, useEffect, useState } from "react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import * as api from "@/lib/api"
+
+export default function App() {
+  const [user, setUser] = useState<api.User | null>(null)
+  const [workspace, setWorkspace] = useState<api.Workspace | null>(null)
+  const [restoring, setRestoring] = useState(true)
+  const [workspaceLoading, setWorkspaceLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+
+  const loadWorkspace = useCallback(async (currentUser: api.User) => {
+    setWorkspaceLoading(true)
+    setError("")
+    try {
+      setWorkspace(await api.workspace(currentUser.role))
+    } catch (cause) {
+      setError((cause as Error).message)
+    } finally {
+      setWorkspaceLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    api.me()
+      .then((currentUser) => {
+        setUser(currentUser)
+        if (currentUser) return loadWorkspace(currentUser)
+      })
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setRestoring(false))
+  }, [loadWorkspace])
+
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError("")
+    const form = new FormData(event.currentTarget)
+    try {
+      const currentUser = await api.login(
+        String(form.get("username")),
+        String(form.get("password")),
+      )
+      setUser(currentUser)
+      if (currentUser) await loadWorkspace(currentUser)
+    } catch (cause) {
+      setError((cause as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function signOut() {
+    setSubmitting(true)
+    setError("")
+    try {
+      await api.logout()
+      setUser(null)
+      setWorkspace(null)
+    } catch (cause) {
+      setError((cause as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (restoring) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-background p-6">
+        <p role="status" className="text-sm text-muted-foreground">
+          Restoring your session…
+        </p>
+      </main>
+    )
+  }
+
+  return (
+    <main className="grid min-h-svh place-items-center bg-background p-4 sm:p-8">
+      <Card className="w-full max-w-md border-border bg-card shadow-2xl">
+        <CardHeader>
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Regulatory and licensing platform
+          </p>
+          <CardTitle>
+            <h1 className="text-2xl">
+              {user ? (workspace?.heading ?? "Workspace") : "Sign in"}
+            </h1>
+          </CardTitle>
+          <CardDescription>
+            {user
+              ? `Signed in as ${user.username} · ${user.role.toLowerCase()}`
+              : "Use your development operator or officer account."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4" role="alert">
+              <AlertTitle>Something went wrong</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {user ? (
+            <div className="space-y-5">
+              {workspaceLoading ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Loading workspace…
+                </p>
+              ) : workspace ? (
+                <p className="text-sm leading-6">{workspace.message}</p>
+              ) : (
+                <Button variant="outline" onClick={() => loadWorkspace(user)}>
+                  Retry workspace
+                </Button>
+              )}
+              <Button className="w-full" onClick={signOut} disabled={submitting}>
+                {submitting ? "Signing out…" : "Sign out"}
+              </Button>
+            </div>
+          ) : (
+            <form className="space-y-4" onSubmit={signIn}>
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input id="username" name="username" autoComplete="username" required autoFocus />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={submitting}>
+                {submitting ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </main>
+  )
+}
