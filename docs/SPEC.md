@@ -48,7 +48,7 @@ Normal local setup contains exactly one operator and one officer, seeded persist
 
 ## Field schema and validation
 
-**Accepted:** the sections, required/optional exceptions, conditional unit, activities/service modes, daily hours, opening date, and declaration follow scope. **Proposed:** the exact property identifiers, enumerations, limits, and validation below. These are fictional product rules.
+**Accepted through T07:** the initial-draft sections, required/optional exceptions, conditional unit, activities/service modes, daily hours, opening date, saved progress formula, and declaration display follow scope. Later submission/correction rules remain proposed where marked. These are fictional product rules.
 
 Trim surrounding whitespace in text. Validate the API's types, known keys, enumerations, lengths, and calendar/time formats on every write. Drafts may omit required values; completeness rules apply at submission/resubmission. Invalid values return field errors rather than being silently coerced. Escape values on display; do not accept HTML as field content.
 
@@ -154,7 +154,7 @@ Submission snapshots include the complete accepted field values, declarations, r
 
 The audit trail records submission, resubmission, status changes, issued feedback, responses, resolution, document replacement references, decisions, and notification generation with actors and server timestamps. It is append-only through ordinary product APIs; users cannot delete/alter past submitted data. No general-purpose audit export is included.
 
-**Proposed progress calculation:** return completed/required counts and a percentage rounded down. Count each required scalar field, each nonempty required set, each of seven valid daily-hour entries, each applicable required document request with a ready file, and the declaration confirmations when provided. Optional/inapplicable items and simulated check states do not affect the denominator. Recompute conditional requirements when editable inputs change; show unmet items alongside the percentage. During corrections, also show addressed/total active issues separately. Neither a percentage nor a response count overrides server submission validation.
+**Accepted initial-draft progress calculation:** return completed/required counts and a percentage rounded down. Count each required scalar field, each nonempty required set, each of seven valid daily-hour entries, each applicable required document request with a ready file, and the two declaration confirmations. Optional/inapplicable items and simulated check states do not affect the denominator. T07 has no ready uploads or captured declarations, so those items remain unmet. Recompute conditional requirements from saved inputs and return stable unmet-item identifiers. Correction progress remains proposed. Neither a percentage nor a response count overrides server submission validation.
 
 ## Persistent notifications
 

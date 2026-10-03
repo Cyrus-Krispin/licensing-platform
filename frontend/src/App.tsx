@@ -30,6 +30,8 @@ const fieldNames = [
   "unitApplicable",
   "unitNumber",
   "tenure",
+  "businessType",
+  "proposedOpeningDate",
 ] as const;
 type DraftField = (typeof fieldNames)[number];
 type DraftValues = Record<DraftField, string | boolean | null>;
@@ -48,7 +50,13 @@ const fieldLabels: Record<DraftField, string> = {
   unitApplicable: "Does the premises have a unit number?",
   unitNumber: "Unit number",
   tenure: "Tenure",
+  businessType: "Business type",
+  proposedOpeningDate: "Proposed opening date",
 };
+
+const activities = ["BEVERAGE_PREPARATION", "COOKING", "BAKING", "REHEATING", "COLD_FOOD_PREPARATION", "PREPACKAGED_FOOD_SALE"];
+const modes = ["DINE_IN", "TAKEAWAY", "DELIVERY"];
+const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
 
 function draftValues(draft: api.Draft): DraftValues {
   return Object.fromEntries(
@@ -137,12 +145,25 @@ function OperatorDrafts() {
         formValue(field, data.get(field)),
       ]),
     ) as DraftValues;
+    const operations: Record<string, unknown> = {
+      preparationActivities: data.getAll("preparationActivities").map(String).sort(),
+      serviceModes: data.getAll("serviceModes").map(String).sort(),
+      operatingHours: Object.fromEntries([...days].sort().flatMap((day) => {
+        const supplied = data.get(`${day}.supplied`) === "true";
+        if (!supplied) return [];
+        const closed = data.get(`${day}.closed`) === "true";
+        return [[day, closed ? { closed: true, opens: null, closes: null, closesNextDay: null } : { closed: false, opens: String(data.get(`${day}.opens`) ?? ""), closes: String(data.get(`${day}.closes`) ?? ""), closesNextDay: data.get(`${day}.closesNextDay`) === "true" }]];
+      })),
+    };
     const baseValues = draftValues(draft);
-    const fields = Object.fromEntries(
+    const fields: Record<string, unknown> = Object.fromEntries(
       fieldNames
         .filter((field) => localValues[field] !== baseValues[field])
         .map((field) => [field, localValues[field]]),
-    ) as Partial<DraftValues>;
+    );
+    Object.entries(operations).forEach(([field, value]) => {
+      if (JSON.stringify(value) !== JSON.stringify(draft[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))) fields[field] = value;
+    });
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
@@ -164,8 +185,8 @@ function OperatorDrafts() {
       }
       try {
         const latest = await api.getDraft(draft.id);
-        const committed = fieldNames.every(
-          (field) => localValues[field] === (latest[field] ?? null),
+        const committed = Object.entries(fields).every(
+          ([field, value]) => JSON.stringify(value) === JSON.stringify(latest[field as keyof api.Draft] ?? null),
         );
         if (failure.status !== 409 && committed) {
           setDraft(latest);
@@ -178,7 +199,7 @@ function OperatorDrafts() {
           );
         } else {
           setConflict(latest);
-          setConflictEdits(fields);
+          setConflictEdits(fields as Partial<DraftValues>);
           setStatus(
             `${failure.message} Review the latest saved values before choosing how to continue.`,
           );
@@ -492,6 +513,37 @@ function OperatorDrafts() {
           )}
         </div>
       </fieldset>
+      <fieldset className="space-y-4">
+        <legend className="font-medium">Operations</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="businessType">Business type (required to submit)</Label>
+            <NativeSelect id="businessType" name="businessType" defaultValue={String((editDefaults ? editDefaults.businessType : draft.businessType) ?? "")} disabled={saving || !!conflict} className="w-full">
+              <NativeSelectOption value="">Not set</NativeSelectOption><NativeSelectOption value="CAFE">Café</NativeSelectOption><NativeSelectOption value="RESTAURANT">Restaurant</NativeSelectOption>
+            </NativeSelect>
+          </div>
+          {input("proposedOpeningDate", "Proposed opening date (YYYY-MM-DD)", true)}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <fieldset id="preparationActivities"><legend className="mb-2 text-sm font-medium">Preparation activities (choose at least one)</legend>{activities.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="preparationActivities" value={value} defaultChecked={(editDefaults?.preparationActivities ?? draft.preparationActivities ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}</fieldset>
+          <fieldset id="serviceModes"><legend className="mb-2 text-sm font-medium">Service modes (choose at least one)</legend>{modes.map((value) => <label key={value} className="flex gap-2 py-1 text-sm"><input type="checkbox" name="serviceModes" value={value} defaultChecked={(editDefaults?.serviceModes ?? draft.serviceModes ?? []).includes(value)} disabled={saving || !!conflict} />{documentRequestLabel(value)}</label>)}</fieldset>
+        </div>
+        <fieldset className="space-y-3"><legend className="font-medium">Opening hours</legend>
+          {days.map((day) => { const saved = (editDefaults?.operatingHours ?? draft.operatingHours ?? {})[day]; return <div id={`operatingHours.${day}`} key={day} className="grid gap-2 rounded-md border p-3 sm:grid-cols-5">
+            <label className="flex items-center gap-2 text-sm font-medium"><input disabled={saving || !!conflict} type="checkbox" name={`${day}.supplied`} value="true" defaultChecked={!!saved} />{documentRequestLabel(day)}</label>
+            <label className="text-sm">Closed <input disabled={saving || !!conflict} type="checkbox" name={`${day}.closed`} value="true" defaultChecked={saved?.closed} /></label>
+            <label className="text-sm">Opens <Input disabled={saving || !!conflict} name={`${day}.opens`} type="time" defaultValue={saved?.opens ?? ""} /></label>
+            <label className="text-sm">Closes <Input disabled={saving || !!conflict} name={`${day}.closes`} type="time" defaultValue={saved?.closes ?? ""} /></label>
+            <label className="text-sm">Next day <input disabled={saving || !!conflict} type="checkbox" name={`${day}.closesNextDay`} value="true" defaultChecked={!!saved?.closesNextDay} /></label>
+            {errors[`operatingHours.${day}`] && <p className="text-sm text-destructive sm:col-span-5">{errors[`operatingHours.${day}`]}</p>}
+          </div>; })}
+        </fieldset>
+      </fieldset>
+      <section aria-labelledby="progress-heading" className="space-y-3 rounded-md border p-4">
+        <h3 id="progress-heading" className="font-medium">Saved completion: {draft.completion?.completed ?? 0} of {draft.completion?.required ?? 0} ({draft.completion?.percentage ?? 0}%)</h3>
+        <p className="text-sm text-muted-foreground">Progress reflects the last saved revision. Documents cannot be ready until upload is added.</p>
+        <ul className="list-inside list-disc text-sm">{(draft.completion?.unmetItemIds ?? []).map((id) => <li key={id}><a className="underline" href={`#${id}`}>{id.startsWith("declaration.") ? "You will confirm these when submitting." : fieldLabels[id as DraftField] ?? documentRequestLabel(id)}</a></li>)}</ul>
+      </section>
       <section aria-labelledby="requirements-heading" className="space-y-3">
         <div>
           <h3 id="requirements-heading" className="font-medium">
@@ -505,6 +557,7 @@ function OperatorDrafts() {
         <ul className="grid gap-2 sm:grid-cols-2">
           {(draft.documentRequests ?? []).map((request) => (
             <li
+              id={`documentRequest.${request.id}`}
               key={request.id}
               aria-label={`${documentRequestLabel(request.type)} requirement`}
               className="rounded-md border border-border p-3 text-sm"
@@ -523,6 +576,11 @@ function OperatorDrafts() {
             </li>
           ))}
         </ul>
+      </section>
+      <section aria-labelledby="declarations-heading" className="space-y-2">
+        <h3 id="declarations-heading" className="font-medium">Declarations</h3>
+        <p id="declaration.accuracy" className="text-sm">Accuracy: You will confirm these when submitting.</p>
+        <p id="declaration.authority" className="text-sm">Authority: You will confirm these when submitting.</p>
       </section>
       <p role="status" className="text-sm text-muted-foreground">
         {status}

@@ -23,7 +23,13 @@ export type Draft = {
   premisesAddress?: string | null; premisesName?: string | null;
   unitApplicable?: boolean | null; unitNumber?: string | null;
   tenure?: "OWNED" | "RENTED" | null;
+  businessType?: "CAFE" | "RESTAURANT" | null;
+  preparationActivities?: string[];
+  serviceModes?: string[];
+  operatingHours?: Record<string, { closed: boolean; opens?: string | null; closes?: string | null; closesNextDay?: boolean | null }>;
+  proposedOpeningDate?: string | null;
   documentRequests?: Array<{ id: string; type: string; applicability: "APPLICABLE" | "NOT_APPLICABLE" | "NEEDS_INPUT"; reason: string }>;
+  completion?: { completed: number; required: number; percentage: number; unmetItemIds: string[] };
 };
 export class ApiError extends Error {
   constructor(message: string, public status: number, public fieldErrors: Record<string, string> = {}) { super(message); }
@@ -49,7 +55,7 @@ export async function getDraft(id: string): Promise<Draft> {
 export async function createDraft(key: string): Promise<Draft> {
   return draftResponse(await csrfRequest("/api/applications", { method: "POST", headers: { "Idempotency-Key": key }, body: "{}" }));
 }
-export async function saveDraft(id: string, revision: number, fields: Record<string, string | boolean | null>): Promise<Draft> {
+export async function saveDraft(id: string, revision: number, fields: Record<string, unknown>): Promise<Draft> {
   return draftResponse(await csrfRequest(`/api/applications/${id}/draft`, { method: "PATCH", body: JSON.stringify({ expectedRevision: revision, fields }) }));
 }
 
