@@ -26,7 +26,14 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health/readiness"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://localhost:8080/actuator/health/readiness",
+        ]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -36,12 +43,12 @@ services:
     image: licensing-platform-frontend:local
     build: ./frontend
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
       interval: 5s
       timeout: 3s
       retries: 20

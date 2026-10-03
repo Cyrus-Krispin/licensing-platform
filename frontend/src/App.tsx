@@ -1,71 +1,78 @@
-import { FormEvent, useCallback, useEffect, useState } from "react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import * as api from "@/lib/api"
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import * as api from "@/lib/api";
 
 export default function App() {
-  const [user, setUser] = useState<api.User | null>(null)
-  const [workspace, setWorkspace] = useState<api.Workspace | null>(null)
-  const [restoring, setRestoring] = useState(true)
-  const [workspaceLoading, setWorkspaceLoading] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState("")
+  const [user, setUser] = useState<api.User | null>(null);
+  const [workspace, setWorkspace] = useState<api.Workspace | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const loadWorkspace = useCallback(async (currentUser: api.User) => {
-    setWorkspaceLoading(true)
-    setError("")
+    setWorkspaceLoading(true);
+    setError("");
     try {
-      setWorkspace(await api.workspace(currentUser.role))
+      setWorkspace(await api.workspace(currentUser.role));
     } catch (cause) {
-      setError((cause as Error).message)
+      setError((cause as Error).message);
     } finally {
-      setWorkspaceLoading(false)
+      setWorkspaceLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    api.me()
+    api
+      .me()
       .then((currentUser) => {
-        setUser(currentUser)
-        if (currentUser) return loadWorkspace(currentUser)
+        setUser(currentUser);
+        if (currentUser) return loadWorkspace(currentUser);
       })
       .catch((cause: Error) => setError(cause.message))
-      .finally(() => setRestoring(false))
-  }, [loadWorkspace])
+      .finally(() => setRestoring(false));
+  }, [loadWorkspace]);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setError("")
-    const form = new FormData(event.currentTarget)
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
     try {
       const currentUser = await api.login(
         String(form.get("username")),
         String(form.get("password")),
-      )
-      setUser(currentUser)
-      if (currentUser) await loadWorkspace(currentUser)
+      );
+      setUser(currentUser);
+      if (currentUser) await loadWorkspace(currentUser);
     } catch (cause) {
-      setError((cause as Error).message)
+      setError((cause as Error).message);
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
   async function signOut() {
-    setSubmitting(true)
-    setError("")
+    setSubmitting(true);
+    setError("");
     try {
-      await api.logout()
-      setUser(null)
-      setWorkspace(null)
+      await api.logout();
+      setUser(null);
+      setWorkspace(null);
     } catch (cause) {
-      setError((cause as Error).message)
+      setError((cause as Error).message);
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
@@ -76,7 +83,7 @@ export default function App() {
           Restoring your session…
         </p>
       </main>
-    )
+    );
   }
 
   return (
@@ -118,7 +125,11 @@ export default function App() {
                   Retry workspace
                 </Button>
               )}
-              <Button className="w-full" onClick={signOut} disabled={submitting}>
+              <Button
+                className="w-full"
+                onClick={signOut}
+                disabled={submitting}
+              >
                 {submitting ? "Signing out…" : "Sign out"}
               </Button>
             </div>
@@ -126,7 +137,13 @@ export default function App() {
             <form className="space-y-4" onSubmit={signIn}>
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
-                <Input id="username" name="username" autoComplete="username" required autoFocus />
+                <Input
+                  id="username"
+                  name="username"
+                  autoComplete="username"
+                  required
+                  autoFocus
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
@@ -146,5 +163,5 @@ export default function App() {
         </CardContent>
       </Card>
     </main>
-  )
+  );
 }

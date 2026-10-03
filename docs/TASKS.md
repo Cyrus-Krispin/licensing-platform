@@ -31,9 +31,9 @@ Only direct blockers are listed; their ancestors also apply. Complete blockers b
 | T13 | Correct documents and provide additional evidence | T12 | Document-only permissions, replacements, missing/additional requests |
 | T14 | Apply comment templates to correction requests | T13 | Reusable contextual comments without template administration |
 | T15 | Compare and browse complete submission history | T13 | Full field/file comparisons and retained issue/audit history |
-| T16 | Handle explicitly requested dependencies mid-round | T13 | Conditional proposal: safe explicit additions, or recorded exclusion |
+| T16 | Handle explicitly requested dependencies mid-round | T13 | **EXCLUDED / skipped:** fixed alternating rounds prohibit mid-round additions |
 | T17 | Recover safely from retries, races, and partial failures | T13 | Proven recovery across complete product mutation flows |
-| T18 | Verify and package the scoped product | T09, T14, T15, T16, T17 | Reproducible acceptance evidence and assessment documentation |
+| T18 | Verify and package the scoped product | T09, T14, T15, T17 | Reproducible acceptance evidence and assessment documentation |
 
 T03 is now the user's first priority: a separate cloud-setup chat owns capability verification/configuration and one authorized real issue → cloud execution → automatically created PR proof. Foundation coding is paused pending that work; this owning chat must not duplicate setup or publish issues. T03 is not a technical prerequisite for local product implementation. T01/T02/T03 are planning/feasibility tasks; T17/T18 are cross-flow verification tasks. The other tasks are vertical product slices, each including necessary persistence, API, UI, and behavioural checks. No separate “all schema,” “all backend,” or “all frontend” phase is intended.
 
@@ -68,8 +68,8 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 - [ ] Accept/amend proposed field names/enums/formats/limits, unit applicability, daily hours/opening-date treatment, required evidence, byte interpretation of 10 MB, and structural upload validation.
 - [ ] Accept/amend scoped transitions/start-review action, editing locks, declaration renewal, active-issue responses, resolution/approval guards, and progress computation.
 - [ ] Review mock processing states/gating/retry, notification read state, templates, and the screen-flow defaults; preserve the no-AI-flags and in-app-only decisions.
-- [ ] Decide explicitly whether proposed mid-round additions in T16 belong in implementation; never infer general dependent-field unlocking.
-- [ ] Keep the current mid-round-additions question unanswered until its response arrives. The accepted shadcn/ui direction does not settle that question.
+- [x] Record the accepted strict fixed alternating-round rule and exclude T16 mid-round additions; never infer dependent-field unlocking.
+- [ ] Review the narrow proposed correction-resubmit completeness exception for a newly mandatory but locked dependent target. This does not reopen T16 or permit initial/final incompleteness.
 - [ ] Confirm a clearly identified product display timezone. Record decisions without reviving site/post-site states, approval routing, or reopening.
 
 **Validation:** walk initial submission, correction, resubmission, resolution, and final outcome examples against the reviewed rules. Questions may be relayed one at a time; no implementation is required to complete this review.
@@ -246,18 +246,13 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Validation:** at least three mixed field/document rounds, same-name replaced files, unchanged reference reuse, order-insensitive sets if accepted, nonadjacent comparison, authorization, history reopening, and queue/filter coverage across every included state.
 
-## T16 — Handle explicitly requested dependencies mid-round
+## T16 — Handle explicitly requested dependencies mid-round — EXCLUDED / skipped
 
-**Blocked by:** T13. **Kind:** conditional vertical slice. **References:** proposed parts of FR-09; SPEC dependency escape/API proposal. T02's decision applies through the blocking chain.
+**Decision:** The user rejected this optional task. Strict fixed alternating rounds prohibit an officer from appending to or editing requests while an operator correction round is open. There is no mid-round unlock, automatic conditional unlock, or API for adding requests to an open round. Missing/additional evidence discovered from a correction is raised only after resubmission, in a later fixed officer review round.
 
-**Deliver:** only if accepted in T02, an officer explicitly appends dependent targets while corrections are pending.
+**Pending rules clarification, not implementation:** T02 must accept or amend the proposed narrow exception described in SPEC: a correction resubmission may defer only newly mandatory evidence that remains locked because it was not in the fixed request set. Initial submission and final approval remain mandatory complete. Until reviewed, dependent slices must not implement this exception or create an impossible correction flow.
 
-- [ ] First record the decision: implement the reviewed mid-round addition, or mark this task **not selected** and revise the proposal's downstream acceptance expectations. Never silently ship a proposal.
-- [ ] If selected, each appended field/document request has explanation/actor/time; unlock only that target, preserve earlier requests/responses, and notify the operator in-app.
-- [ ] Handle revision conflicts and repeated additions without duplicate issues/notices. No automatic dependent unlock or whole-section editing.
-- [ ] If not selected, agree a valid existing-round alternative in the rules review so a dependent requirement cannot leave a case impossible to resubmit. This is a rules clarification, not permission to introduce new workflow features.
-
-**Validation:** selected-path browser tenure/evidence or role/authorization dependency scenario, direct API permission test, preserved saved corrections, and stale/retry checks. For a non-selected task, document and walk the agreed alternative; do not claim implemented functionality.
+**Validation:** documentation contains no mid-round append endpoint or acceptance case; later workflow tests must reject attempts to mutate a published request set.
 
 ## T17 — Recover safely from retries, races, and partial failures
 
@@ -275,7 +270,7 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 ## T18 — Verify and package the scoped product
 
-**Blocked by:** T09, T14, T15, T16 (implemented or explicitly not selected), T17. **Kind:** acceptance/delivery. **References:** FR-01–16; NFR-01–08; assessment deliverables and traceability.
+**Blocked by:** T09, T14, T15, T17. T16 is explicitly excluded and is not a blocker. **Kind:** acceptance/delivery. **References:** FR-01–16; NFR-01–08; assessment deliverables and traceability.
 
 **Deliver:** a reviewable repository/zip with reproducible setup, proportionate evidence, and honest scope limitations.
 
@@ -301,7 +296,7 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 | FR-06 | T07, T10 |
 | FR-07 | T10, T11, T15 |
 | FR-08 | T12–14 |
-| FR-09 | T12, T13, conditional T16 |
+| FR-09 | T12, T13; T16 excluded |
 | FR-10 | T12, T13 |
 | FR-11 | T12, T13, T15 |
 | FR-12 | T11, T12 |
@@ -320,8 +315,12 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 ## Next review step
 
-The user authorized implementation, then prioritized the separate cloud-setup chat's T03 verification and one real issue/automatic-PR proof. Preserve this backlog for that executor's context, without inferring that a triage label performs dispatch. Review remaining T01/T02 proposals before dependent product work; the question of adding specific requests during an open correction round remains unanswered. Resume foundation implementation when the user directs it after cloud setup, using branches and PRs; do not duplicate the cloud-setup chat's issue publication/configuration.
+The user authorized implementation, then prioritized the separate cloud-setup chat's T03 verification and one real issue/automatic-PR proof. Preserve this backlog for that executor's context, without inferring that a triage label performs dispatch. Review remaining T01/T02 proposals before dependent product work; strict fixed alternating rounds are accepted, while the narrow dependent-completeness exception remains proposed. Resume foundation implementation when the user directs it after cloud setup, using branches and PRs; do not duplicate the cloud-setup chat's issue publication/configuration.
 
 ## T04 implementation evidence (2026-10-03)
 
-The `feature/docker-role-sign-in` slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, including real PostgreSQL and Compose validation. Measured coverage establishes documented regression gates (frontend 75% statements/70% branches/75% functions/80% lines; backend 80% lines) without excluding authentication or business code. CD, rollback, production destination/secrets, and T02 product rules remain deferred. This progress note does not accept or amend any proposal markers above.
+The `feature/docker-role-sign-in` slice records the accepted technical baseline and implements T04 only. It adds the four read-only CI checks documented in the README, designed to run real PostgreSQL and Compose validation after publication. Local Maven evidence uses H2 in PostgreSQL compatibility mode and does not establish PostgreSQL compatibility. Independent Docker evidence supplied during review covers the original revision’s real auth/session restart behavior only; corrected current-branch Compose/browser results remain pending GitHub Actions. Measured coverage establishes documented regression gates (frontend 75% statements/70% branches/75% functions/80% lines; backend 80% lines) without excluding authentication or business code. CD, rollback, production destination/secrets, and T02 product rules remain deferred. This progress note does not accept or amend any proposal markers above.
+
+## Deferred CI roadmap decision
+
+SonarQube integration for Java and TypeScript/React static analysis and a quality gate is deferred to a separate existing backlog/CI-roadmap task. A future reviewed implementation should consume the real JaCoCo XML and frontend LCOV reports. The official supported SonarQube Server versus Cloud choice depends on account, tooling, and cost context; this decision makes no free-plan claim and authorizes no scanner installation, account creation, secret request, or live check in T04. Existing coverage, secret, dependency, image, Compose, and browser checks remain required.

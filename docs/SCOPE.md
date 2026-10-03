@@ -28,7 +28,7 @@ The following fields are required unless marked optional or conditional. Exact e
 | Food operations | Business type, at least one preparation activity, at least one service mode (dine-in/takeaway/delivery), operating hours or “closed” for each day, proposed opening date |
 | Declaration | Confirmation of accuracy and authority to apply |
 
-Required evidence: business registration, premises layout, and permission to use the premises for a food business. Lease evidence applies to rented premises; ownership evidence applies to owned premises. An authorization letter is required when the applicant acts as a representative. Officers may request missing or additional evidence during corrections.
+Required evidence: business registration, premises layout, and permission to use the premises for a food business. Lease evidence applies to rented premises; ownership evidence applies to owned premises. An authorization letter is required when the applicant acts as a representative. Officers may request missing or additional evidence only when publishing a fixed correction set during an officer review round.
 
 Accept **PDF, JPEG, and PNG**, at most **10 MB per file**, with one current file per document request. Replacing a document creates a new file record; previously submitted files remain available to their submission versions. Validate formats and fictional product consistency on key paths, without implying checks against an official register or real jurisdiction's laws.
 
@@ -46,7 +46,7 @@ Accept **PDF, JPEG, and PNG**, at most **10 MB per file**, with one current file
 - Provide an organised full view of submitted form data and documents, including the basic simulated verification status.
 - Let the officer request corrections on **individual fields and documents**, including requests for missing/additional documents. Provide predefined comment templates for common issues.
 - Present officer feedback prominently at the top of the operator application, with links to the specific field or document concerned.
-- Let operators update requested fields/documents without re-entering retained information. Do not silently permit whole-section or whole-application edits, or automatically unlock dependent fields.
+- Use strict alternating rounds: an officer reviews the current immutable submission, publishes one fixed correction request set, and cannot append to or edit that set while the operator correction round is open. The operator may update only the individually requested field/document targets and resubmits a new immutable version. The officer then reviews that version, resolves requests, and may publish a new fixed round. Do not silently permit whole-section or whole-application edits, mid-round additions, or automatic conditional/dependent unlocks.
 - On resubmission, preserve a new fixed snapshot, highlight changes, and allow officers to open and compare prior submissions with the latest one. Unchanged files can be referenced by multiple versions without duplicating their contents.
 - Keep corrected issues awaiting officer review. Only the officer confirms resolution or requests a further correction; resubmission does not automatically resolve an issue.
 - Support unlimited feedback/resubmission rounds without loss of application data. Retain feedback, submitted values/files, resolution history, actors, timestamps, and workflow decisions in the audit history.
@@ -103,9 +103,9 @@ Validate key inputs on the backend and provide actionable errors without losing 
 
 ## Open follow-up decisions
 
-- Exact field enumerations/formats, conditional-document rules in edge cases, and whether any correction may unlock a dependent field.
+- Exact field enumerations/formats and conditional-document rules in edge cases. A proposed correction-resubmit completeness exception for newly required but locked dependent evidence remains pending review; initial submission and final approval remain mandatory complete.
 - Complete scoped transition rules, review entry behaviour, editing locks, and remaining simulated-status semantics. Site/post-site/approval-routing coverage is deferred, not an unresolved request to expand this scope. AI warnings/results remain deferred rather than assumed included.
-- UI layout, navigation, review/comparison presentation, templates, and notification read-state behaviour within the accepted shadcn/ui dark-theme constraint. The question of explicitly adding requests during an open correction round remains unanswered.
+- UI layout, navigation, review/comparison presentation, templates, and notification read-state behaviour within the accepted shadcn/ui dark-theme constraint.
 - Dependency versions, auth/session configuration, API/data-model details, and specific verification tooling.
 - Whether a hosted deployment is required beyond reproducible Docker setup, and its operational configuration.
 - The intended development skill set's exact name remains unconfirmed. GitHub issues automatically dispatched to Codex cloud, followed by verified/reviewed PRs, are an eventual workflow goal; capabilities/triggers must be verified and authorized before configuration. No issue publishing or automation setup is implied by this scope document.

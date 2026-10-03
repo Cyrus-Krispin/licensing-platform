@@ -46,7 +46,7 @@ for role in operator officer; do
   : >"$cookie_jar"
   login "$role" "local-$role-password"
   curl --fail --silent --show-error --cookie "$cookie_jar" "$base_url/api/auth/me" |
-    grep --quiet "${role^^}"
+    grep --quiet "$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')"
   curl --fail --silent --show-error --cookie "$cookie_jar" "$base_url/api/workspaces/$role" |
     grep --quiet 'workspace'
   other=operator
@@ -55,6 +55,16 @@ for role in operator officer; do
   logout
   test "$(status --cookie "$cookie_jar" "$base_url/api/auth/me")" = 401
 done
+
+# The private file volume is writable by the non-root Java process and is not served by nginx.
+docker compose exec -T backend sh -c \
+  'test "$(awk "/^Uid:/{print \$2}" /proc/1/status)" = 10001 && gosu app test -w /var/lib/licensing/files && gosu app sh -c "printf private-volume-probe > /var/lib/licensing/files/.write-probe"'
+public_response=$(curl --fail --silent --show-error "$base_url/.write-probe")
+if printf '%s' "$public_response" | grep --quiet private-volume-probe; then
+  echo "private file volume content was publicly served" >&2
+  exit 1
+fi
+docker compose exec -T backend rm /var/lib/licensing/files/.write-probe
 
 # A JDBC-backed session and unchanged seeded credentials must survive an ordinary backend restart.
 : >"$cookie_jar"
