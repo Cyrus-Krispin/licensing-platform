@@ -87,9 +87,13 @@ function valueAt(snapshot: api.Draft, path: string): unknown {
 function Snapshot({
   detail,
   role,
+  renderReview,
+  renderUnplaced,
 }: {
   detail: api.CaseDetail;
   role: api.User["role"];
+  renderReview?: (kind: "FIELD" | "DOCUMENT", target: string, label: string, current: boolean) => ReactNode;
+  renderUnplaced?: (snapshot: api.Draft, current: boolean) => ReactNode;
 }) {
   const [number, setNumber] = useState(0);
   const version =
@@ -141,28 +145,31 @@ function Snapshot({
         {new Date(version.submittedAt).toLocaleString()} · Accuracy and
         authority confirmed
       </p>
-      <dl className="flex flex-col divide-y">
+      <div className="flex flex-col divide-y">
         {Object.entries(fieldLabels).map(([path, label]) => {
           const current = valueAt(version.snapshot, path);
           const previous = prior ? valueAt(prior.snapshot, path) : undefined;
           const changed =
             prior && JSON.stringify(current) !== JSON.stringify(previous);
           return (
-            <div key={path} id={`submitted-${path}`} tabIndex={-1} className="min-w-0 scroll-mt-36 py-4 text-sm">
-              <dt className="font-medium">
-                {label}
-                {changed ? " · Changed" : ""}
-              </dt>
-              <dd className="break-words">{display(current)}</dd>
-              {changed && (
-                <dd className="text-muted-foreground">
-                  Previous: {display(previous)}
-                </dd>
-              )}
+            <div key={path} id={`submitted-${path}`} tabIndex={-1} className={`min-w-0 scroll-mt-36 py-4 text-sm ${renderReview ? "grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : ""}`}>
+              <dl>
+                <dt className="font-medium">
+                  {label}
+                  {changed ? " · Changed" : ""}
+                </dt>
+                <dd className="break-words">{display(current)}</dd>
+                {changed && (
+                  <dd className="text-muted-foreground">
+                    Previous: {display(previous)}
+                  </dd>
+                )}
+              </dl>
+              {renderReview?.("FIELD", path, label, version.number === detail.latestVersion)}
             </div>
           );
         })}
-      </dl>
+      </div>
       <h4 className="font-medium">Retained submitted files</h4>
       <ul className="space-y-2">
         {version.snapshot.documentRequests?.map((request) => {
@@ -171,7 +178,8 @@ function Snapshot({
             (item) => item.id === request.id,
           )?.currentUpload;
           return (
-            <li key={request.id} id={`submitted-documentRequest.${request.id}`} tabIndex={-1} className="scroll-mt-36 border-t py-4 text-sm">
+            <li key={request.id} id={`submitted-documentRequest.${request.id}`} tabIndex={-1} className={`scroll-mt-36 border-t py-4 text-sm ${renderReview ? "grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : ""}`}>
+              <div className="min-w-0">
               <p>
                 {display(request.type)} ·{" "}
                 {request.applicability === "APPLICABLE"
@@ -201,15 +209,41 @@ function Snapshot({
               ) : (
                 <p>No file in this version</p>
               )}
+              </div>
+              {renderReview?.("DOCUMENT", request.id, display(request.type), version.number === detail.latestVersion)}
             </li>
           );
         })}
       </ul>
+      {renderUnplaced?.(version.snapshot, version.number === detail.latestVersion)}
     </section>
   );
 }
 
-function SavedApplicationReview({ detail }: { detail: api.CaseDetail }) {
+function TargetReview({ kind, target, label, disabled, onSave }: {
+  kind: "FIELD" | "DOCUMENT";
+  target: string;
+  label: string;
+  disabled: boolean;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputId = `correction-${kind}-${target}`;
+  return <div className="space-y-3">
+    <Button type="button" variant="outline" size="sm" aria-label={`Review ${label}`} aria-expanded={open} aria-controls={`${inputId}-form`} onClick={() => setOpen(!open)}>Review</Button>
+    {open && <form id={`${inputId}-form`} className="space-y-3" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      void onSave({ kind, target, text: new FormData(event.currentTarget).get("text"), title: null });
+    }}>
+      <Label htmlFor={inputId}>Correction explanation for {label}</Label>
+      <Textarea id={inputId} name="text" required maxLength={2000} />
+      <p className="text-xs text-muted-foreground">Request a correction to this submitted {kind === "FIELD" ? "field" : "document"}.</p>
+      <Button type="submit" size="sm" disabled={disabled}>Save review request</Button>
+    </form>}
+  </div>;
+}
+
+function SavedApplicationReview({ detail, renderReview, renderUnplaced }: { detail: api.CaseDetail; renderReview: (kind: "FIELD" | "DOCUMENT", target: string, label: string, current: boolean) => ReactNode; renderUnplaced: (snapshot: api.Draft, current: boolean) => ReactNode }) {
   const draft = detail.working;
   if (!draft) return null;
   return (
@@ -217,15 +251,27 @@ function SavedApplicationReview({ detail }: { detail: api.CaseDetail }) {
       <h3 className="font-semibold">Review saved application</h3>
       <p className="text-sm text-muted-foreground">These are your saved details and uploaded files. Review them, then confirm the declarations and submit. Saving a draft does not submit it.</p>
       <a href="#application-business" className="text-sm underline">Back to application details</a>
-      <dl className="flex flex-col divide-y">
-        {Object.entries(fieldLabels).map(([path, label]) => <div key={path} className="min-w-0 py-3 text-sm"><dt className="font-medium">{label}</dt><dd className="break-words">{display(valueAt(draft, path))}</dd></div>)}
-      </dl>
+      <div className="flex flex-col divide-y">
+        {Object.entries(fieldLabels).map(([path, label]) => <div key={path} className="grid min-w-0 gap-3 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <dl><dt className="font-medium">{label}</dt><dd className="break-words">{display(valueAt(draft, path))}</dd></dl>
+          {renderReview("FIELD", path, label, true)}
+        </div>)}
+      </div>
       <h4 className="font-medium">Saved evidence</h4>
       <ul className="flex flex-col gap-3">
-        {draft.documentRequests?.filter((item) => item.applicability === "APPLICABLE").map((item) => <li key={item.id} className="text-sm"><p>{display(item.type)}</p>{item.currentUpload ? <a className="break-words underline" href={`/api/applications/${detail.id}/evidence/uploads/${item.currentUpload.id}`} target="_blank" rel="noreferrer">{item.currentUpload.filename}</a> : <p className="text-status-warning">No saved file yet</p>}</li>)}
+        {draft.documentRequests?.filter((item) => item.applicability === "APPLICABLE").map((item) => <li key={item.id} className="grid min-w-0 gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><div className="min-w-0"><p>{display(item.type)}</p>{item.currentUpload ? <a className="break-words underline" href={`/api/applications/${detail.id}/evidence/uploads/${item.currentUpload.id}`} target="_blank" rel="noreferrer">{item.currentUpload.filename}</a> : <p className="text-status-warning">No saved file yet</p>}</div>{renderReview("DOCUMENT", item.id, display(item.type), true)}</li>)}
       </ul>
+      {renderUnplaced(draft, true)}
     </section>
   );
+}
+
+export function FeedbackSlot({ target, onTarget }: {
+  target: string;
+  onTarget: (target: string, element: HTMLDivElement | null) => void;
+}) {
+  const attach = useCallback((element: HTMLDivElement | null) => onTarget(target, element), [target, onTarget]);
+  return <div ref={attach} className="empty:hidden" />;
 }
 
 export function CasePanel({
@@ -240,6 +286,7 @@ export function CasePanel({
   submissionTarget,
   saveAction,
   submissionBlocked = false,
+  feedbackTargets,
 }: {
   id: string;
   role: api.User["role"];
@@ -252,6 +299,7 @@ export function CasePanel({
   submissionTarget?: HTMLElement | null;
   saveAction?: ReactNode;
   submissionBlocked?: boolean;
+  feedbackTargets?: Record<string, HTMLElement>;
 }) {
   const [detail, setDetail] = useState<api.CaseDetail | null>(null);
   const [error, setError] = useState("");
@@ -265,7 +313,7 @@ export function CasePanel({
   const [accuracy, setAccuracy] = useState(false);
   const [authority, setAuthority] = useState(false);
   const [message, setMessage] = useState("");
-  const [issueKind, setIssueKind] = useState("FIELD");
+  const [outcome, setOutcome] = useState("APPROVED");
   const inFlight = useRef(false);
   const loadGeneration = useRef(0);
   const onDetailRef = useRef(onDetail);
@@ -353,17 +401,6 @@ export function CasePanel({
       inFlight.current = false;
     }
   }
-  function issue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const kind = String(data.get("kind"));
-    void command("save-issue", {
-      kind,
-      target: kind === "ADDITIONAL" ? undefined : data.get("target"),
-      text: data.get("text"),
-      title: data.get("title"),
-    });
-  }
   if (!detail)
     return (
       <>
@@ -379,13 +416,120 @@ export function CasePanel({
   const operatorRound =
     role === "OPERATOR" && detail.status === "PENDING_PRE_SITE_RESUBMISSION";
   const reviewing = role === "OFFICER" && detail.status === "UNDER_REVIEW";
-  const latest = detail.versions.at(-1)?.snapshot;
   const unmetSavedItems = detail.working?.completion?.unmetItemIds.filter((item) => !item.startsWith("declaration.")) ?? [];
   const synchronizing = workingRevision !== undefined && detail.revision !== workingRevision;
+  const disabled = busy || synchronizing || !!pending;
+  const renderIssue = (item: api.CaseIssue, actionable = true) => (
+    <div
+      key={item.id}
+      className="space-y-3 border-t py-4 text-sm"
+    >
+      <p className="font-medium">
+        Round {item.round} · <Badge variant={item.state === "RESOLVED" ? "success" : item.state === "OPEN" ? "warning" : item.state === "AWAITING_REVIEW" ? "info" : "secondary"}>{display(item.state)}</Badge> ·{" "}
+        {fieldLabels[item.target ?? ""] ??
+          item.title ??
+          display(item.kind)}
+      </p>
+      <p className="break-words">{item.text}</p>
+      {item.target && !feedbackTargets && (
+        <a
+          className="underline"
+          href={`#${role === "OFFICER" ? "submitted-" : ""}${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
+        >
+          Go to requested {item.kind === "FIELD" ? "field" : "document"}
+        </a>
+      )}
+      {item.response && (
+        <p className="break-words">
+          Operator response: {item.response}
+        </p>
+      )}
+      {operatorRound && item.state === "OPEN" && (
+        <div className="space-y-2">
+          {feedbackTargets && item.kind === "FIELD" && <>
+            <p className="text-xs text-muted-foreground">Update the field above and save your changes, then respond to this request.</p>
+            <Button type="submit" form="application-editor" size="sm" variant="outline" disabled={disabled || submissionBlocked}>Save correction changes</Button>
+          </>}
+          <Label htmlFor={`response-${item.id}`}>Response to this request</Label>
+          <Textarea id={`response-${item.id}`} form={`response-form-${item.id}`} name="response" required maxLength={2000} defaultValue={item.response ?? ""} />
+          <Button type="submit" form={`response-form-${item.id}`} size="sm" disabled={disabled || submissionBlocked}>Save response</Button>
+        </div>
+      )}
+      {reviewing && actionable && item.state === "DRAFT" && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || synchronizing || !!pending}
+          onClick={() => command("delete-issue", { issueId: item.id })}
+        >
+          Remove unpublished request
+        </Button>
+      )}
+      {reviewing && actionable && item.state === "AWAITING_REVIEW" && (
+        <form
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void command("reissue", {
+              issueId: item.id,
+              text: new FormData(event.currentTarget).get("text"),
+            });
+          }}
+        >
+          <Label htmlFor={`reissue-${item.id}`}>
+            Further correction explanation
+          </Label>
+          <Textarea
+            id={`reissue-${item.id}`}
+            name="text"
+            required
+            maxLength={2000}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
+            disabled={busy || synchronizing || !!pending}
+          >
+            Request further correction next round
+          </Button>
+        </form>
+      )}
+      {reviewing && actionable && item.state === "AWAITING_REVIEW" && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || synchronizing || !!pending}
+          onClick={() => command("resolve", { issueId: item.id })}
+        >
+          Confirm resolution
+        </Button>
+      )}
+    </div>
+  );
+  const renderReview = (kind: "FIELD" | "DOCUMENT", target: string, label: string, current: boolean) => {
+    const requests = detail.issues.filter((item) => (item.kind === kind || (kind === "DOCUMENT" && item.kind === "ADDITIONAL")) && item.target === target);
+    if (!requests.length && !reviewing) return null;
+    return <section className="min-w-0 space-y-3 sm:pl-4" aria-label={`Officer feedback for ${label}`}>
+      {requests.map((item) => renderIssue(item, current))}
+      {reviewing && current && !requests.some((item) => item.state === "DRAFT" || item.state === "AWAITING_REVIEW") && <TargetReview kind={kind} target={target} label={label} disabled={disabled} onSave={(fields) => command("save-issue", fields)} />}
+      {reviewing && !current && <p className="text-sm text-muted-foreground">Select the latest version to request a correction.</p>}
+    </section>;
+  };
+  const savedReview = role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound);
+  const renderUnplaced = (snapshot: api.Draft, current: boolean) => {
+    const issues = detail.issues.filter((item) => item.kind !== "FIELD" && !snapshot.documentRequests?.some((request) => request.id === item.target));
+    return !!issues.length && <section className="space-y-3" aria-label="Other officer feedback">
+      <h3 className="font-medium">Additional review requests</h3>
+      {issues.map((item) => renderIssue(item, current))}
+    </section>;
+  };
   const submission = role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) ? (
     <section className="space-y-3 border-t pt-6" aria-label="Submission declarations">
       <h3 className="font-medium">{operatorRound ? "Resubmit corrections" : "Submit application"}</h3>
-      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href="#application-workflow">Review saved details</a>, then confirm both declarations afresh.</p>
+      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href={feedbackTargets && operatorRound ? "#application-business" : "#application-workflow"}>Review saved details</a>, then confirm both declarations afresh.</p>
       {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence, then save.</AlertDescription></Alert>}
       <div className="flex items-center gap-2"><Checkbox id="accuracy" checked={accuracy} onCheckedChange={(value) => setAccuracy(value === true)} /><Label htmlFor="accuracy">I confirm this application is accurate.</Label></div>
       <div className="flex items-center gap-2"><Checkbox id="authority" checked={authority} onCheckedChange={(value) => setAuthority(value === true)} /><Label htmlFor="authority">I am authorised to apply for this business.</Label></div>
@@ -429,121 +573,15 @@ export function CasePanel({
       <p role="status" className="text-sm text-muted-foreground">
         {message}
       </p>
-      {!!detail.issues.length && (
-        <section className="space-y-3" aria-label="Officer feedback">
-          <h3 className="font-medium">
-            Officer feedback · fixed correction rounds
-          </h3>
-          {detail.issues.map((item) => (
-            <div
-              key={item.id}
-              className="space-y-3 border-t py-4 text-sm"
-            >
-              <p className="font-medium">
-                Round {item.round} · <Badge variant={item.state === "RESOLVED" ? "success" : item.state === "OPEN" ? "warning" : item.state === "AWAITING_REVIEW" ? "info" : "secondary"}>{display(item.state)}</Badge> ·{" "}
-                {fieldLabels[item.target ?? ""] ??
-                  item.title ??
-                  display(item.kind)}
-              </p>
-              <p className="break-words">{item.text}</p>
-              {item.target && (
-                <a
-                  className="underline"
-                  href={`#${role === "OFFICER" ? "submitted-" : ""}${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
-                >
-                  Go to requested {item.kind === "FIELD" ? "field" : "document"}
-                </a>
-              )}
-              {item.response && (
-                <p className="break-words">
-                  Operator response: {item.response}
-                </p>
-              )}
-              {operatorRound && item.state === "OPEN" && (
-                <form
-                  className="space-y-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void command("response", {
-                      issueId: item.id,
-                      response: new FormData(event.currentTarget).get(
-                        "response",
-                      ),
-                    });
-                  }}
-                >
-                  <Label htmlFor={`response-${item.id}`}>
-                    Response to this request
-                  </Label>
-                  <Textarea
-                    id={`response-${item.id}`}
-                    name="response"
-                    required
-                    maxLength={2000}
-                    defaultValue={item.response ?? ""}
-                  />
-                  <Button type="submit" size="sm" disabled={busy || synchronizing || !!pending}>
-                    Save response
-                  </Button>
-                </form>
-              )}
-              {reviewing && item.state === "DRAFT" && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || synchronizing || !!pending}
-                  onClick={() => command("delete-issue", { issueId: item.id })}
-                >
-                  Remove unpublished request
-                </Button>
-              )}
-              {reviewing && item.state === "AWAITING_REVIEW" && (
-                <form
-                  className="space-y-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void command("reissue", {
-                      issueId: item.id,
-                      text: new FormData(event.currentTarget).get("text"),
-                    });
-                  }}
-                >
-                  <Label htmlFor={`reissue-${item.id}`}>
-                    Further correction explanation
-                  </Label>
-                  <Textarea
-                    id={`reissue-${item.id}`}
-                    name="text"
-                    required
-                    maxLength={2000}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || synchronizing || !!pending}
-                  >
-                    Request further correction next round
-                  </Button>
-                </form>
-              )}
-              {reviewing && item.state === "AWAITING_REVIEW" && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || synchronizing || !!pending}
-                  onClick={() => command("resolve", { issueId: item.id })}
-                >
-                  Confirm resolution
-                </Button>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-      {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && <SavedApplicationReview detail={detail} />}
+      {operatorRound && detail.issues.filter((item) => item.state === "OPEN").map((item) => <form key={item.id} id={`response-form-${item.id}`} onSubmit={(event) => {
+        event.preventDefault();
+        void command("response", { issueId: item.id, response: new FormData(event.currentTarget).get("response") });
+      }} />)}
+      {feedbackTargets && detail.issues.map((item) => {
+        const target = feedbackTargets[item.kind === "FIELD" ? item.target ?? "" : `documentRequest.${item.target}`];
+        return target ? createPortal(<section aria-label={`Officer feedback for ${fieldLabels[item.target ?? ""] ?? item.title ?? display(item.kind)}`}>{renderIssue(item)}</section>, target, item.id) : null;
+      })}
+      {savedReview && (!feedbackTargets || detail.status === "DRAFT") && <SavedApplicationReview detail={detail} renderReview={renderReview} renderUnplaced={renderUnplaced} />}
       {role === "OPERATOR" && ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(detail.status) && <Alert><AlertTitle>{detail.status === "APPLICATION_RECEIVED" ? "Application submitted" : "Corrections resubmitted"}</AlertTitle><AlertDescription>Your submission has been received. There is nothing more to submit now; an officer will review it. Check this application or the notification bell for updates.</AlertDescription></Alert>}
       {submissionTarget ? createPortal(submission, submissionTarget) : submission}
       {role === "OFFICER" &&
@@ -558,109 +596,47 @@ export function CasePanel({
             Start review
           </Button>
         )}
+      {detail.status !== "DRAFT" && (feedbackTargets ? <details><summary className="cursor-pointer text-sm font-medium">Submitted versions</summary><Snapshot detail={detail} role={role} renderReview={!savedReview && !feedbackTargets ? renderReview : undefined} renderUnplaced={!savedReview && !feedbackTargets ? renderUnplaced : undefined} /></details> : <Snapshot detail={detail} role={role} renderReview={!savedReview && !feedbackTargets ? renderReview : undefined} renderUnplaced={!savedReview && !feedbackTargets ? renderUnplaced : undefined} />)}
       {reviewing && (
-        <section className="space-y-4" aria-label="Review actions">
-          <h3 className="font-medium">Review actions</h3>
-          <form className="space-y-3 border-t pt-6" onSubmit={issue}>
-            <Label htmlFor="issue-kind">Correction kind</Label>
-            <NativeSelect
-              id="issue-kind"
-              name="kind"
-              value={issueKind}
-              onChange={(event) => setIssueKind(event.target.value)}
-            >
-              <NativeSelectOption value="FIELD">
-                Field correction
-              </NativeSelectOption>
-              <NativeSelectOption value="DOCUMENT">
-                Document correction
-              </NativeSelectOption>
-              <NativeSelectOption value="ADDITIONAL">
-                Additional evidence
-              </NativeSelectOption>
-            </NativeSelect>
-            <Label htmlFor="issue-target">Requested field or document</Label>
-            <NativeSelect
-              id="issue-target"
-              name="target"
-              key={issueKind}
-              disabled={issueKind === "ADDITIONAL"}
-            >
-              {issueKind === "FIELD" &&
-                Object.entries(fieldLabels).map(([value, label]) => (
-                  <NativeSelectOption key={value} value={value}>
-                    {label}
-                  </NativeSelectOption>
-                ))}
-              {issueKind === "DOCUMENT" &&
-                latest?.documentRequests?.map((request) => (
-                  <NativeSelectOption key={request.id} value={request.id}>
-                    {display(request.type)}
-                  </NativeSelectOption>
-                ))}
-            </NativeSelect>
-            <Label htmlFor="issue-title">
-              Additional evidence title (required for additional evidence)
-            </Label>
-            <Input id="issue-title" name="title" maxLength={200} />
-            <Label htmlFor="issue-text">Correction explanation</Label>
-            <Textarea id="issue-text" name="text" required maxLength={2000} />
-            <Button type="submit" disabled={busy || synchronizing || !!pending}>
-              Save review request
-            </Button>
-          </form>
-          <p className="text-sm text-muted-foreground">
-            Publish all requests together. The issued set stays fixed until the
-            operator resubmits.
-          </p>
-          <Button
-            type="button"
-            disabled={
-              busy ||
-              !!pending ||
-              !detail.issues.some(
-                (item) =>
-                  item.state === "DRAFT" || item.state === "AWAITING_REVIEW",
-              )
-            }
-            onClick={() => command("publish-corrections", {})}
-          >
-            Publish fixed correction round
-          </Button>
-          <form
-            className="space-y-3 border-t pt-6"
-            onSubmit={(event) => {
+        <section className="space-y-4 border-t pt-6" aria-label="Complete officer review">
+          <details className="space-y-3">
+            <summary className="cursor-pointer text-sm font-medium">Request additional evidence</summary>
+            <form className="space-y-3" onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
-              void command("decision", {
-                outcome: data.get("outcome"),
-                explanation: data.get("explanation"),
-              });
-            }}
-          >
-            <Label htmlFor="outcome">Final decision</Label>
-            <NativeSelect id="outcome" name="outcome">
+              void command("save-issue", { kind: "ADDITIONAL", target: undefined, title: data.get("title"), text: data.get("text") });
+            }}>
+              <Label htmlFor="issue-title">Additional evidence title</Label>
+              <Input id="issue-title" name="title" required maxLength={200} />
+              <Label htmlFor="issue-text">Correction explanation</Label>
+              <Textarea id="issue-text" name="text" required maxLength={2000} />
+              <Button type="submit" disabled={disabled}>Save review request</Button>
+            </form>
+          </details>
+          <h3 className="font-medium">Submit review result</h3>
+          <p className="text-sm text-muted-foreground">Review the fields and files above, then submit one result. Saved requests are unpublished until you send the fixed correction round.</p>
+          <form className="space-y-3" onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void command(outcome === "CORRECTIONS" ? "publish-corrections" : "decision", outcome === "CORRECTIONS" ? {} : { outcome, explanation: data.get("explanation") });
+          }}>
+            <Label htmlFor="outcome">Review result</Label>
+            <NativeSelect id="outcome" name="outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+              <NativeSelectOption value="CORRECTIONS">Request corrections</NativeSelectOption>
               <NativeSelectOption value="APPROVED">Approve</NativeSelectOption>
               <NativeSelectOption value="REJECTED">Reject</NativeSelectOption>
             </NativeSelect>
-            <Label htmlFor="decision-explanation">
-              Decision explanation (required)
-            </Label>
-            <Textarea
-              id="decision-explanation"
-              name="explanation"
-              required
-              maxLength={2000}
-            />
-            <Button type="submit" disabled={busy || synchronizing || !!pending}>
-              Record final decision
-            </Button>
+            {outcome === "CORRECTIONS" ? <p className="text-sm text-muted-foreground">Publish all saved requests together. The issued set stays fixed until the operator resubmits.</p> : <>
+              <Label htmlFor="decision-explanation">Decision explanation (required)</Label>
+              <Textarea id="decision-explanation" name="explanation" required maxLength={2000} />
+            </>}
+            <Button type="submit" disabled={disabled || (outcome === "CORRECTIONS" && !detail.issues.some((item) => item.state === "DRAFT" || item.state === "AWAITING_REVIEW"))}>Submit review result</Button>
           </form>
         </section>
       )}
-      {detail.status !== "DRAFT" && <Snapshot detail={detail} role={role} />}
+      <details open={feedbackTargets ? undefined : true}>
+        <summary className="cursor-pointer text-sm font-medium">Application history</summary>
       <section className="space-y-3" aria-label="Application history">
-        <h3 className="font-medium">Application history</h3>
         <ol className="space-y-2">
           {detail.events.map((event) => (
             <li
@@ -686,6 +662,7 @@ export function CasePanel({
           ))}
         </ol>
       </section>
+      </details>
     </section>
   );
 }

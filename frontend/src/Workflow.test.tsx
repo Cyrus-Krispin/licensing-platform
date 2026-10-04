@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import {
@@ -284,8 +284,9 @@ test("officer confirms resolution, can reissue and publishes a fixed round", asy
       expect.any(String),
     ),
   );
+  await user.selectOptions(screen.getByLabelText("Review result"), "CORRECTIONS");
   await user.click(
-    screen.getByRole("button", { name: "Publish fixed correction round" }),
+    screen.getByRole("button", { name: "Submit review result" }),
   );
   await waitFor(() =>
     expect(api.caseCommand).toHaveBeenLastCalledWith(
@@ -310,16 +311,14 @@ test("officer creates additional evidence, deletes drafts, and records reasoned 
   const detail = {
     ...base,
     status: "UNDER_REVIEW" as const,
+    latestVersion: 1,
     versions: [version],
     issues: [{ ...issue, state: "DRAFT" as const }],
   };
   vi.mocked(api.getCase).mockResolvedValue(detail);
   vi.mocked(api.caseCommand).mockResolvedValue(detail);
   render(<CasePanel id="case" role="OFFICER" />);
-  await user.selectOptions(
-    await screen.findByLabelText("Correction kind"),
-    "ADDITIONAL",
-  );
+  await user.click(await screen.findByText("Request additional evidence"));
   await user.type(
     screen.getByLabelText(/Additional evidence title/),
     "Consent",
@@ -353,13 +352,13 @@ test("officer creates additional evidence, deletes drafts, and records reasoned 
       expect.any(String),
     ),
   );
-  await user.selectOptions(screen.getByLabelText("Final decision"), "REJECTED");
+  await user.selectOptions(screen.getByLabelText("Review result"), "REJECTED");
   await user.type(
     screen.getByLabelText("Decision explanation (required)"),
     "Insufficient evidence",
   );
   await user.click(
-    screen.getByRole("button", { name: "Record final decision" }),
+    screen.getByRole("button", { name: "Submit review result" }),
   );
   await waitFor(() =>
     expect(api.caseCommand).toHaveBeenLastCalledWith(
@@ -454,14 +453,14 @@ test("a stale officer cannot approve a newer unseen submission without refreshin
   vi.mocked(api.caseCommand).mockResolvedValue({...newer,status:"APPROVED"});
   render(<CasePanel id="case" role="OFFICER"/>);
   await user.type(await screen.findByLabelText("Decision explanation (required)"),"Document review completed");
-  await user.click(screen.getByRole("button",{name:"Record final decision"}));
+  await user.click(screen.getByRole("button",{name:"Submit review result"}));
   await screen.findByText("The saved case changed. Refresh and review the current submission before acting.");
   expect(api.caseCommand).not.toHaveBeenCalled();
   expect(screen.getByRole("heading", { name: "Under Review · Version 1" })).toBeVisible();
   expect(screen.queryByRole("button",{name:"Retry action"})).not.toBeInTheDocument();
   await user.click(screen.getByRole("button",{name:"Refresh case history"}));
   await screen.findByRole("heading", { name: "Under Review · Version 2" });
-  await user.click(screen.getByRole("button",{name:"Record final decision"}));
+  await user.click(screen.getByRole("button",{name:"Submit review result"}));
   await waitFor(()=>expect(api.caseCommand).toHaveBeenCalledWith(newer,"decision",{outcome:"APPROVED",explanation:"Document review completed"},expect.any(String)));
 });
 
@@ -538,4 +537,64 @@ test("operator response synchronizes the panel after a locally committed draft r
   await waitFor(() => expect(screen.getByRole("region", { name: "Review saved application" })).toHaveTextContent("Corrected Cafe"));
   await userEvent.click(screen.getByRole("button", { name: "Save response" }));
   await waitFor(() => expect(api.caseCommand).toHaveBeenCalledWith(saved, "response", { issueId: "issue", response: "Correction completed" }, expect.any(String)));
+});
+
+
+test("officer requests corrections beside the exact submitted field and file, then sends one result", async () => {
+  const user = userEvent.setup();
+  const detail: api.CaseDetail = { ...base, status: "UNDER_REVIEW", latestVersion: 1, versions: [version] };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  vi.mocked(api.caseCommand).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OFFICER" />);
+  const fieldButton = await screen.findByRole("button", { name: "Review Legal name" });
+  expect(fieldButton.closest("#submitted-legalName")).toHaveTextContent("Cafe");
+  expect(screen.queryByLabelText("Correction explanation for Legal name")).not.toBeInTheDocument();
+  await user.click(fieldButton);
+  expect(fieldButton).toHaveAttribute("aria-expanded", "true");
+  await user.type(screen.getByLabelText("Correction explanation for Legal name"), "Use registered name");
+  await user.click(within(fieldButton.parentElement!).getByRole("button", { name: "Save review request" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenLastCalledWith(detail, "save-issue", { kind: "FIELD", target: "legalName", text: "Use registered name", title: null }, expect.any(String)));
+  const fileButton = screen.getByRole("button", { name: "Review BUSINESS REGISTRATION" });
+  expect(fileButton.closest("li")).toHaveTextContent("registration.pdf");
+  await user.click(fileButton);
+  await user.type(screen.getByLabelText("Correction explanation for BUSINESS REGISTRATION"), "Upload legible copy");
+  await user.click(within(fileButton.parentElement!).getByRole("button", { name: "Save review request" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenLastCalledWith(detail, "save-issue", { kind: "DOCUMENT", target: "doc", text: "Upload legible copy", title: null }, expect.any(String)));
+  const submit = screen.getByRole("button", { name: "Submit review result" });
+  expect(screen.getByRole("heading", { name: "Submitted versions" }).compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText("Review result"), "CORRECTIONS");
+  expect(submit).toBeDisabled();
+  expect(api.caseCommand).toHaveBeenCalledTimes(2);
+});
+
+test("historical submissions retain feedback without officer mutation controls", async () => {
+  const user = userEvent.setup();
+  const detail: api.CaseDetail = { ...base, status: "UNDER_REVIEW", latestVersion: 2, versions: [version, { ...version, number: 2 }], issues: [{ ...issue, state: "AWAITING_REVIEW" }, { ...issue, id: "extra", kind: "ADDITIONAL", target: "later-document", title: "Signed consent", text: "Provide consent", state: "AWAITING_REVIEW" }] };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OFFICER" />);
+  await screen.findAllByRole("button", { name: "Confirm resolution" });
+  await user.selectOptions(screen.getByLabelText("View immutable submission"), "1");
+  expect(screen.getByText("Correct legal name")).toBeVisible();
+  expect(screen.getByText("Provide consent")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Confirm resolution" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Review BUSINESS REGISTRATION" })).not.toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("View immutable submission"), "2");
+  expect(screen.getAllByRole("button", { name: "Confirm resolution" })).toHaveLength(2);
+});
+
+
+test("operator review places comments and response controls beside each saved field and document", async () => {
+  const detail: api.CaseDetail = { ...base, status: "PENDING_PRE_SITE_RESUBMISSION", latestVersion: 1, versions: [version], working: { ...draft, legalName: "Saved corrected Cafe" }, issues: [issue, { ...issue, id: "document-issue", kind: "DOCUMENT", target: "doc", text: "Replace registration file" }] };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OPERATOR" />);
+  const review = await screen.findByRole("region", { name: "Review saved application" });
+  const fieldFeedback = within(review).getByLabelText("Officer feedback for Legal name");
+  expect(fieldFeedback.parentElement).toHaveTextContent("Saved corrected Cafe");
+  expect(within(fieldFeedback).getByText("Correct legal name")).toBeVisible();
+  expect(within(fieldFeedback).getByLabelText("Response to this request")).toBeVisible();
+  const fileFeedback = within(review).getByLabelText("Officer feedback for BUSINESS REGISTRATION");
+  expect(fileFeedback.closest("li")).toHaveTextContent("registration.pdf");
+  expect(within(fileFeedback).getByText("Replace registration file")).toBeVisible();
+  expect(screen.getAllByText("Correct legal name")).toHaveLength(1);
+  expect(screen.queryByRole("region", { name: "Officer feedback" })).not.toBeInTheDocument();
 });
