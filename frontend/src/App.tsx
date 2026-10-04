@@ -94,6 +94,11 @@ function canonical(value: unknown): string {
   return JSON.stringify(canonicalValue(value));
 }
 
+function dayState(value: DayHours | undefined) {
+  if (!value) return "NOT_SET";
+  return value.closed ? "CLOSED" : "OPEN";
+}
+
 function operationValues(data: FormData): PatchFields {
   return {
     preparationActivities: data
@@ -141,6 +146,9 @@ function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFiel
     const baseHours = base.operatingHours ?? {};
     const hours = { ...(latest.operatingHours ?? {}) };
     new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach((day) => {
+      const baseDay = baseHours[day];
+      const localDay = local[day];
+      const latestDay = hours[day];
       const original = canonicalValue(baseHours[day]) as Record<
         string,
         unknown
@@ -150,6 +158,13 @@ function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFiel
         unknown
       > | null;
       if (canonical(original) === canonical(changed)) return;
+      const remoteStateChanged = dayState(latestDay) !== dayState(baseDay);
+      const localStateChanged = dayState(localDay) !== dayState(baseDay);
+      if (remoteStateChanged || localStateChanged) {
+        if (localDay) hours[day] = localDay;
+        else delete hours[day];
+        return;
+      }
       if (!changed) {
         delete hours[day];
         return;
@@ -219,6 +234,8 @@ function describeSelection(values: string[] | undefined) {
 }
 
 function unmetLabel(draft: api.Draft, id: string) {
+  if (id === "preparationActivities") return "Preparation activities";
+  if (id === "serviceModes") return "Service modes";
   if (id.startsWith("operatingHours.")) {
     return `${documentRequestLabel(id.split(".")[1])} hours`;
   }
@@ -511,6 +528,9 @@ function OperatorDrafts() {
   const conflictPreview = conflict
     ? mergeConflictEdits(conflictBase ?? draft, conflict, conflictEdits)
     : null;
+  const conflictLocal = conflictBase
+    ? ({ ...conflictBase, ...conflictEdits } as api.Draft)
+    : null;
 
   const input = (
     name: DraftField,
@@ -605,7 +625,15 @@ function OperatorDrafts() {
               <div className="sm:col-span-2">
                 <dt className="font-medium">Opening hours</dt>
                 <dd>
+                  <strong>Original:</strong>{" "}
+                  {describeHours(conflictBase?.operatingHours)}
+                </dd>
+                <dd>
                   <strong>Saved:</strong> {describeHours(conflict.operatingHours)}
+                </dd>
+                <dd>
+                  <strong>Your complete local edit:</strong>{" "}
+                  {describeHours(conflictLocal?.operatingHours)}
                 </dd>
                 <dd>
                   <strong>After keeping edits:</strong>{" "}

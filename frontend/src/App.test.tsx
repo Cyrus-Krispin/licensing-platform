@@ -189,6 +189,80 @@ describe("authentication workspace", () => {
     });
   });
 
+  test("keep restores a complete local open day when remote changed it to closed", async () => {
+    const baseMonday = { closed: false, opens: "09:00", closes: "17:00", closesNextDay: false };
+    const draft = premisesDraft({ operatingHours: { MONDAY: baseMonday } });
+    const latest = { ...draft, revision: 8, operatingHours: { MONDAY: { closed: true } } };
+    vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockRejectedValueOnce({ status: 409, message: "Changed elsewhere" }).mockResolvedValueOnce({ ...latest, revision: 9 });
+    vi.mocked(api.getDraft).mockResolvedValue(latest);
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    await userEvent.clear(screen.getByLabelText("Opens on Monday"));
+    await userEvent.type(screen.getByLabelText("Opens on Monday"), "10:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    const hoursComparison = (await screen.findByText("Opening hours", { selector: "dt" })).parentElement!;
+    expect(
+      within(hoursComparison)
+        .getByText(/Your complete local edit:/)
+        .closest("dd"),
+    ).toHaveTextContent("Monday: 10:00–17:00");
+    expect(
+      within(hoursComparison).getByText(/After keeping edits:/).closest("dd"),
+    ).toHaveTextContent("Monday: 10:00–17:00");
+    await userEvent.click(screen.getByRole("button", { name: "Keep and review my edits" }));
+    expect(screen.getByLabelText("Monday hours")).toHaveValue("OPEN");
+    expect(screen.getByLabelText("Opens on Monday")).toHaveValue("10:00");
+    expect(screen.getByLabelText("Closes on Monday")).toHaveValue("17:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(api.saveDraft).toHaveBeenLastCalledWith("premises-draft", 8, {
+      operatingHours: { MONDAY: { closed: false, opens: "10:00", closes: "17:00", closesNextDay: false } },
+    });
+  });
+
+  test("keep restores a complete local open day when remote removed the day", async () => {
+    const baseMonday = { closed: false, opens: "09:00", closes: "17:00", closesNextDay: false };
+    const draft = premisesDraft({ operatingHours: { MONDAY: baseMonday } });
+    const latest = { ...draft, revision: 2, operatingHours: {} };
+    vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockRejectedValueOnce({ status: 409, message: "Changed elsewhere" }).mockResolvedValueOnce({ ...latest, revision: 3 });
+    vi.mocked(api.getDraft).mockResolvedValue(latest);
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    await userEvent.clear(screen.getByLabelText("Opens on Monday"));
+    await userEvent.type(screen.getByLabelText("Opens on Monday"), "10:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Keep and review my edits" }));
+    expect(screen.getByLabelText("Monday hours")).toHaveValue("OPEN");
+    expect(screen.getByLabelText("Closes on Monday")).toHaveValue("17:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(api.saveDraft).toHaveBeenLastCalledWith("premises-draft", 2, {
+      operatingHours: { MONDAY: { closed: false, opens: "10:00", closes: "17:00", closesNextDay: false } },
+    });
+  });
+
+  test("reload keeps the remote closed state after an incompatible day conflict", async () => {
+    const draft = premisesDraft({ operatingHours: { MONDAY: { closed: false, opens: "09:00", closes: "17:00", closesNextDay: false } } });
+    const latest = { ...draft, revision: 2, operatingHours: { MONDAY: { closed: true } } };
+    vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+    vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+    vi.mocked(api.saveDraft).mockRejectedValue({ status: 409, message: "Changed elsewhere" });
+    vi.mocked(api.getDraft).mockResolvedValue(latest);
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    await userEvent.clear(screen.getByLabelText("Opens on Monday"));
+    await userEvent.type(screen.getByLabelText("Opens on Monday"), "10:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Reload saved values" }));
+    expect(screen.getByLabelText("Monday hours")).toHaveValue("CLOSED");
+    expect(screen.queryByLabelText("Opens on Monday")).not.toBeInTheDocument();
+  });
+
   test("creates and explicitly saves an incomplete draft", async () => {
     const draft = {
       id: "d1",
