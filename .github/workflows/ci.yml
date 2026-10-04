@@ -86,6 +86,7 @@ jobs:
               "postgresLeaseRecoveryFencesActualStaleCompletion",
               "concurrentPostgresSubmissionsRecoverSingleSnapshotAndNotice",
               "concurrentPostgresFinalDecisionsHaveOnlyOneWinner",
+              "postgresNotificationFailureRollsBackSnapshotStateEventAndReceipt",
           }
           cases = {}
           for report in Path("backend/target/surefire-reports").glob("TEST-*.xml"):

@@ -27,8 +27,8 @@ public class WorkflowService {
 
     public List<CaseSummary> list(String actor) {
         boolean officer = officer(actor);
-        return db.query("select d.id,d.revision,d.status,coalesce(c.latest_version,0),d.legal_name,d.updated_at from application_draft d left join case_state c on c.application_id=d.id where " + (officer ? "d.status<>'DRAFT'" : "d.owner_username=?") + " order by d.updated_at desc,d.id",
-            (r,n) -> new CaseSummary(r.getObject(1, UUID.class),r.getLong(2),r.getString(3),r.getInt(4),r.getString(5),r.getTimestamp(6).toInstant()), officer ? new Object[]{} : new Object[]{actor});
+        return db.query("select d.id,d.revision,d.status,coalesce(c.latest_version,0),d.legal_name,d.updated_at,s.snapshot from application_draft d left join case_state c on c.application_id=d.id left join submission s on s.application_id=d.id and s.version_number=c.latest_version where " + (officer ? "d.status<>'DRAFT'" : "d.owner_username=?") + " order by d.updated_at desc,d.id",
+            (r,n) -> new CaseSummary(r.getObject(1, UUID.class),r.getLong(2),r.getString(3),r.getInt(4),officer ? read(r.getString(7),DraftService.Draft.class).legalName() : r.getString(5),r.getTimestamp(6).toInstant()), officer ? new Object[]{} : new Object[]{actor});
     }
 
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
