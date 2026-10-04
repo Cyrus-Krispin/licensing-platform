@@ -6,6 +6,11 @@ spring:
   session:
     jdbc:
       initialize-schema: never
+  servlet:
+    multipart:
+      max-file-size: 10000001B
+      max-request-size: 11MB
+      resolve-lazily: true
 server:
   servlet:
     session:
@@ -22,3 +27,6 @@ management:
     health:
       probes:
         enabled: true
+
+licensing:
+  file-storage-path: ${FILE_STORAGE_PATH:./data/private-files}

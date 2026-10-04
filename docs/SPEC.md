@@ -38,7 +38,7 @@ Normal local setup contains exactly one operator and one officer, seeded persist
 | Read unsubmitted working draft | No | Owner | No |
 | Upload/replace current requested document | No | Owner, within editing permissions | No |
 | Read submitted versions/files/history | No | Own applications | All submitted cases |
-| Enter contextual feedback/use templates | No | No | Yes, while reviewing; proposed append-only additions during corrections |
+| Enter contextual feedback/use templates | No | No | Yes, while reviewing; the issued request set stays fixed while an operator correction round is open |
 | Start review/request corrections/resolve issues | No | No | Yes in the defined review workflow |
 | Submit/resubmit | No | Owner, in permitted state | No |
 | Approve/reject | No | No | Yes, while reviewing |
@@ -48,7 +48,7 @@ Normal local setup contains exactly one operator and one officer, seeded persist
 
 ## Field schema and validation
 
-**Accepted:** the sections, required/optional exceptions, conditional unit, activities/service modes, daily hours, opening date, and declaration follow scope. **Proposed:** the exact property identifiers, enumerations, limits, and validation below. These are fictional product rules.
+**Accepted through T07:** the initial-draft sections, required/optional exceptions, conditional unit, activities/service modes, daily hours, opening date, saved progress formula, and declaration display follow scope. Later submission/correction rules remain proposed where marked. These are fictional product rules.
 
 Trim surrounding whitespace in text. Validate the API's types, known keys, enumerations, lengths, and calendar/time formats on every write. Drafts may omit required values; completeness rules apply at submission/resubmission. Invalid values return field errors rather than being silently coerced. Escape values on display; do not accept HTML as field content.
 
@@ -154,7 +154,7 @@ Submission snapshots include the complete accepted field values, declarations, r
 
 The audit trail records submission, resubmission, status changes, issued feedback, responses, resolution, document replacement references, decisions, and notification generation with actors and server timestamps. It is append-only through ordinary product APIs; users cannot delete/alter past submitted data. No general-purpose audit export is included.
 
-**Proposed progress calculation:** return completed/required counts and a percentage rounded down. Count each required scalar field, each nonempty required set, each of seven valid daily-hour entries, each applicable required document request with a ready file, and the declaration confirmations when provided. Optional/inapplicable items and simulated check states do not affect the denominator. Recompute conditional requirements when editable inputs change; show unmet items alongside the percentage. During corrections, also show addressed/total active issues separately. Neither a percentage nor a response count overrides server submission validation.
+**Accepted initial-draft progress calculation:** return completed/required counts and a percentage rounded down. Count each required scalar field, each nonempty required set, each of seven valid daily-hour entries, each applicable required document request with a ready file, and the two declaration confirmations. Optional/inapplicable items and simulated check states do not affect the denominator. T07 has no ready uploads or captured declarations, so those items remain unmet. Recompute conditional requirements from saved inputs and return stable unmet-item identifiers. Correction progress remains proposed. Neither a percentage nor a response count overrides server submission validation.
 
 ## Persistent notifications
 
@@ -330,3 +330,21 @@ Excluded: site/post-site states and workflows, including scheduling and use case
 5. AI warning/result/flag behaviour remains explicitly deferred unless the user later elects to add it; no current proposal restores that cancelled scope.
 
 This specification was synthesized from the approved scope and interview decisions using the installed Matt Pocock `to-spec` guidance, adapted to the explicitly requested local document. No issue tracker publication, code implementation, commits, or automation setup is authorized by its creation.
+
+## Accepted T08 implementation subset and wire API
+
+T08 accepts the initial-`DRAFT` upload rules above. It does not accept or implement T09 simulated processing, T10 submission/declarations/snapshots/officer file access, correction uploads, malware/content/authenticity findings, or live AI. An owner may upload only to a currently applicable request on their editable draft. Officers cannot read draft files. Owner access to every retained immutable upload remains available even if its request later becomes inapplicable.
+
+- `POST /api/applications/{applicationId}/evidence/requests/{requestId}?expectedRevision={revision}` consumes `multipart/form-data` with one `file` part and requires the Spring CSRF header plus `Idempotency-Key`. Success returns `{upload:{id,requestId,filename,contentType,byteSize,sha256,createdAt},revision,currentDraft}`. `upload` and `revision` are the immutable operation receipt; `currentDraft` is an authoritative snapshot read after that operation and may be newer after a replacement. No response returns a storage key or path.
+- `GET /api/applications/{applicationId}/evidence/uploads/{uploadId}` streams an owner-authorized retained file with its detected media type, safe inline `Content-Disposition`, and `X-Content-Type-Options: nosniff`.
+- Draft `documentRequests[]` adds nullable `currentUpload` with the same public upload metadata. A ready current upload completes that applicable request in saved progress.
+
+The mutation key is scoped to actor/application/request and fingerprints actual bytes, sanitized display filename, and detected content type. Matching committed receipts are returned before stale-revision evaluation; a different fingerprint conflicts. Replacement inserts an immutable upload and moves only the request's current pointer. Bytes are finalized under an opaque generated key before the metadata/pointer/receipt/revision transaction. Cleanup occurs immediately only after an explicit transaction `ROLLED_BACK` completion; unknown or commit-then-error outcomes retain bytes for reconciliation so a committed current, historical file, or receipt is never invalidated. A missing committed object produces `file_integrity_failure` rather than a false download.
+
+### Private-volume reconciliation
+
+Stop the backend first so there are no active upload writers. The script requires `BACKEND_OFFLINE_CONFIRMED=yes`, queries with `ON_ERROR_STOP`, validates every generated UUID key, and completes the reference list before deleting anything. It treats **all** `evidence_upload.storage_key` values as committed references (including historical/noncurrent and now-inapplicable uploads), removes only object keys absent from that set, and then clears uncommitted staging parts and abandoned generated `validate-*` work directories without following links. A query or validation failure preserves objects, staging parts, and validation directories.
+
+A Docker-runnable maintenance invocation using the existing Compose network and volume is: `docker compose stop backend && docker run --rm --network licensing-platform_default -v licensing-platform_private-files:/files -v "$PWD/scripts:/maintenance:ro" -e PGPASSWORD="$DATABASE_PASSWORD" -e DATABASE_URL=postgresql://licensing@db/licensing -e FILE_STORAGE_PATH=/files -e BACKEND_OFFLINE_CONFIRMED=yes postgres:17.6-alpine /maintenance/reconcile-private-files.sh`. Adjust Compose's generated network/volume names when `COMPOSE_PROJECT_NAME` is set. Restart with `docker compose up -d backend` only after the command succeeds. Inspect/backup the volume and database before destructive production maintenance.
+
+T08 parser resources follow the [PDFBox 3 migration guidance](https://pdfbox.apache.org/3.0/migration.html). Structural decoding runs in a disposable child JVM inside the existing backend container, with a 96 MB heap, five-second active deadline enforced by forcefully terminating the process, and at most two concurrent workers. PDFBox uses a mixed scratch cache capped at 8,000,000 memory bytes and 32,000,000 total bytes in a per-parse directory. The accepted input remains bounded at 10,000,000 bytes. Images are inspected before full decode and capped at 20,000 pixels per side and 100,000,000 pixels total. Timeout, interruption, crash, cache exhaustion, or invalid structure forcibly terminates and awaits the worker before removing its per-parse directory and releasing the worker permit. These are structural resource controls, not malware, authenticity, content, or legal-validity checks.

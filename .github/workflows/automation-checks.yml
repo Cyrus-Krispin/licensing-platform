@@ -18,4 +18,5 @@ jobs:
         with:
           persist-credentials: false
       - run: node scripts/check-markdown-links.mjs
+      - run: scripts/test-reconcile-private-files.sh
       - run: git diff --check
