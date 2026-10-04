@@ -91,6 +91,29 @@ class DraftHttpIntegrationTest {
     }
 
     @Test
+    void structuredCreateRoundTripsAndExtendedDatesFailAtomically() throws Exception {
+        Client operator = new Client();
+        operator.login("operator");
+        String payload = "{\"businessType\":\"CAFE\",\"preparationActivities\":[\"COOKING\",\"BAKING\"],"
+                + "\"serviceModes\":[\"TAKEAWAY\"],\"operatingHours\":{\"MONDAY\":{\"closed\":true}},"
+                + "\"proposedOpeningDate\":\"2020-02-29\"}";
+        MvcResult created = operator.perform(write(post("/api/applications"), payload).header("Idempotency-Key", "structured-http"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.preparationActivities[0]").value("BAKING"))
+                .andExpect(jsonPath("$.operatingHours.MONDAY.closed").value(true))
+                .andReturn();
+        String id = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+        operator.perform(write(patch("/api/applications/{id}/draft", id),
+                        "{\"expectedRevision\":1,\"fields\":{\"businessType\":\"RESTAURANT\",\"proposedOpeningDate\":\"+10000-01-01\"}}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.proposedOpeningDate").exists());
+        operator.perform(get("/api/applications/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.businessType").value("CAFE"))
+                .andExpect(jsonPath("$.revision").value(1));
+    }
+
+    @Test
     void staleNoOpPatchIsRejectedAndOfficerCannotReadDrafts() throws Exception {
         Client operator = new Client();
         operator.login("operator");

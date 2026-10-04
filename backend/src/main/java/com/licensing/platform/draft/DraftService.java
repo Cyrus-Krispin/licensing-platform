@@ -9,6 +9,11 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -42,7 +47,12 @@ public class DraftService {
                     "premisesName",
                     "unitApplicable",
                     "unitNumber",
-                    "tenure");
+                    "tenure",
+                    "businessType",
+                    "preparationActivities",
+                    "serviceModes",
+                    "operatingHours",
+                    "proposedOpeningDate");
     private static final Map<String, String> COLUMNS =
             Map.ofEntries(
                     Map.entry("legalName", "legal_name"),
@@ -57,7 +67,17 @@ public class DraftService {
                     Map.entry("premisesName", "premises_name"),
                     Map.entry("unitApplicable", "unit_applicable"),
                     Map.entry("unitNumber", "unit_number"),
-                    Map.entry("tenure", "tenure"));
+                    Map.entry("tenure", "tenure"),
+                    Map.entry("businessType", "business_type"),
+                    Map.entry("preparationActivities", "preparation_activities"),
+                    Map.entry("serviceModes", "service_modes"),
+                    Map.entry("operatingHours", "operating_hours"),
+                    Map.entry("proposedOpeningDate", "proposed_opening_date"));
+    private static final Set<String> ACTIVITIES = Set.of("BEVERAGE_PREPARATION", "COOKING", "BAKING", "REHEATING", "COLD_FOOD_PREPARATION", "PREPACKAGED_FOOD_SALE");
+    private static final Set<String> MODES = Set.of("DINE_IN", "TAKEAWAY", "DELIVERY");
+    private static final Set<String> DAYS = Set.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY");
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
+    private static final Pattern TIME = Pattern.compile("(?:[01][0-9]|2[0-3]):[0-5][0-9]");
     private static final Pattern REGISTRATION = Pattern.compile("[A-Za-z0-9/-]{3,40}");
     private static final Pattern EMAIL =
             Pattern.compile(
@@ -70,7 +90,8 @@ public class DraftService {
             select id, revision, status, legal_name, trading_name, registration_number,
                    business_structure, applicant_name, applicant_role, applicant_email,
                    applicant_phone, premises_address, premises_name, unit_applicable,
-                   unit_number, tenure, updated_at
+                   unit_number, tenure, business_type, preparation_activities, service_modes,
+                   operating_hours, proposed_opening_date, updated_at
               from application_draft
             """;
     private static final String JOINED_SELECT =
@@ -79,7 +100,8 @@ public class DraftService {
                    d.registration_number, d.business_structure, d.applicant_name,
                    d.applicant_role, d.applicant_email, d.applicant_phone,
                    d.premises_address, d.premises_name, d.unit_applicable,
-                   d.unit_number, d.tenure, d.updated_at,
+                   d.unit_number, d.tenure, d.business_type, d.preparation_activities,
+                   d.service_modes, d.operating_hours, d.proposed_opening_date, d.updated_at,
                    r.id as request_id, r.request_type, r.applicability, r.reason
               from application_draft d
               join document_request r on r.application_id=d.id
@@ -248,7 +270,7 @@ public class DraftService {
         values.forEach(
                 (field, value) -> {
                     assignments.add(COLUMNS.get(field) + "=?");
-                    arguments.add(value);
+                    arguments.add(storageValue(field, value));
                 });
 
         if (assignments.isEmpty()) {
@@ -424,6 +446,10 @@ public class DraftService {
                         errors.put(field, "Unknown field");
                     } else if (field.equals("unitApplicable") && value != null && !(value instanceof Boolean)) {
                         errors.put(field, "Must be true, false, or null");
+                    } else if (Set.of("preparationActivities", "serviceModes").contains(field)) {
+                        validateSet(field, value, field.equals("preparationActivities") ? ACTIVITIES : MODES, errors);
+                    } else if (field.equals("operatingHours")) {
+                        validateHours(value, errors);
                     } else if (!field.equals("unitApplicable") && value != null && !(value instanceof String)) {
                         errors.put(field, "Must be text or null");
                     }
@@ -454,6 +480,22 @@ public class DraftService {
                 "applicantRole",
                 Set.of("OWNER", "DIRECTOR", "EMPLOYEE", "REPRESENTATIVE"));
         enumValue(values, errors, "tenure", Set.of("OWNED", "RENTED"));
+        enumValue(values, errors, "businessType", Set.of("CAFE", "RESTAURANT"));
+        string(values, "proposedOpeningDate")
+                .ifPresent(
+                        value -> {
+                            try {
+                                if (!value.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
+                                    throw new DateTimeParseException(
+                                            "Invalid date shape", value, 0);
+                                }
+                                LocalDate.parse(value, DATE);
+                            } catch (DateTimeParseException exception) {
+                                errors.put(
+                                        "proposedOpeningDate",
+                                        "Use a valid calendar date in YYYY-MM-DD format");
+                            }
+                        });
         string(values, "applicantEmail")
                 .filter(value -> !EMAIL.matcher(value).matches())
                 .ifPresent(ignored -> errors.put("applicantEmail", "Enter a valid email address"));
@@ -469,6 +511,81 @@ public class DraftService {
                                         "applicantPhone",
                                         "Use 7–15 digits with +, spaces, parentheses, or hyphens"));
         return errors;
+    }
+
+    private void validateSet(
+            String field,
+            Object value,
+            Set<String> allowed,
+            Map<String, String> errors) {
+        if (!(value instanceof List<?> list)) {
+            errors.put(field, "Must be an array");
+            return;
+        }
+        Set<Object> distinct = new java.util.HashSet<>(list);
+        if (distinct.size() != list.size()
+                || list.stream()
+                        .anyMatch(
+                                item ->
+                                        !(item instanceof String)
+                                                || !allowed.contains(item))) {
+            errors.put(field, "Choose distinct valid values");
+        }
+    }
+
+    private void validateHours(Object value, Map<String, String> errors) {
+        if (!(value instanceof Map<?, ?> hours)) {
+            errors.put("operatingHours", "Must be an object");
+            return;
+        }
+        for (var entry : hours.entrySet()) {
+            String key = entry.getKey() instanceof String text ? text : "operatingHours";
+            String errorKey = "operatingHours." + key;
+            if (!DAYS.contains(key) || !(entry.getValue() instanceof Map<?, ?> day)) {
+                errors.put(errorKey, "Supply a named weekday object");
+                continue;
+            }
+            if (!day.keySet()
+                            .stream()
+                            .allMatch(
+                                    Set.of("closed", "opens", "closes", "closesNextDay")
+                                            ::contains)
+                    || !(day.get("closed") instanceof Boolean closed)) {
+                errors.put(
+                        errorKey,
+                        "Use only closed, opens, closes and closesNextDay");
+                continue;
+            }
+            if (closed) {
+                if (day.size() != 1) {
+                    errors.put(
+                            errorKey,
+                            "Closed days cannot contain times or an overnight value");
+                }
+                continue;
+            }
+            if (!(day.get("opens") instanceof String opens)
+                    || !(day.get("closes") instanceof String closes)
+                    || !(day.get("closesNextDay") instanceof Boolean nextDay)
+                    || day.size() != 4) {
+                errors.put(errorKey, "Open days require times and closesNextDay");
+                continue;
+            }
+            try {
+                if (!TIME.matcher(opens).matches() || !TIME.matcher(closes).matches()) {
+                    throw new DateTimeParseException("Invalid time", opens, 0);
+                }
+                LocalTime opening = LocalTime.parse(opens, DateTimeFormatter.ofPattern("HH:mm"));
+                LocalTime closing = LocalTime.parse(closes, DateTimeFormatter.ofPattern("HH:mm"));
+                if (opening.equals(closing)
+                        || (!nextDay && !closing.isAfter(opening))
+                        || (nextDay && !closing.isBefore(opening))) {
+                    errors.put(errorKey, "Enter a non-zero same-day or overnight interval");
+                }
+            } catch (DateTimeParseException exception) {
+                errors.put(errorKey, "Times must use HH:mm");
+            }
+        }
     }
 
     private void checkLength(
@@ -512,11 +629,54 @@ public class DraftService {
         if (field.equals("unitApplicable")) {
             return value;
         }
+        if (Set.of("preparationActivities", "serviceModes").contains(field)) {
+            return ((List<?>) value)
+                    .stream()
+                    .sorted((a, b) -> ((String) a).compareTo((String) b))
+                    .toList();
+        }
+        if (field.equals("operatingHours")) {
+            Map<String, Object> canonicalHours = new TreeMap<>();
+            ((Map<String, Object>) value)
+                    .forEach(
+                            (day, entry) ->
+                                    canonicalHours.put(
+                                            day,
+                                            new TreeMap<>((Map<String, Object>) entry)));
+            return canonicalHours;
+        }
         String normalized = ((String) value).trim();
         return (field.equals("tradingName") || field.equals("premisesName"))
                         && normalized.isBlank()
                 ? null
                 : normalized;
+    }
+
+    private Object storageValue(String field, Object value) {
+        return value != null
+                        && Set.of(
+                                        "preparationActivities",
+                                        "serviceModes",
+                                        "operatingHours")
+                                .contains(field)
+                ? json(value)
+                : value;
+    }
+
+    private String json(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to store operations", exception);
+        }
+    }
+
+    private <T> T readJson(String value, com.fasterxml.jackson.core.type.TypeReference<T> type) {
+        try {
+            return objectMapper.readValue(value, type);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Invalid stored operations", exception);
+        }
     }
 
     private String fingerprint(Map<String, Object> canonicalPayload) {
@@ -558,7 +718,7 @@ public class DraftService {
                                         resultSet.getString("applicability"),
                                         resultSet.getString("reason")));
                     }
-                    return rows.values().stream().map(DraftRows::toDraft).toList();
+                    return rows.values().stream().map(this::completeDraft).toList();
                 },
                 arguments);
     }
@@ -582,38 +742,117 @@ public class DraftService {
                         (Boolean) resultSet.getObject("unit_applicable"),
                         resultSet.getString("unit_number"),
                         resultSet.getString("tenure"),
+                        resultSet.getString("business_type"),
+                        readJson(
+                                resultSet.getString("preparation_activities"),
+                                new com.fasterxml.jackson.core.type.TypeReference<
+                                        List<String>>() {}),
+                        readJson(
+                                resultSet.getString("service_modes"),
+                                new com.fasterxml.jackson.core.type.TypeReference<
+                                        List<String>>() {}),
+                        readJson(
+                                resultSet.getString("operating_hours"),
+                                new com.fasterxml.jackson.core.type.TypeReference<
+                                        Map<String, DayHours>>() {}),
+                        resultSet.getString("proposed_opening_date"),
                         List.of(),
+                        null,
                         resultSet.getTimestamp("updated_at").toInstant());
     }
 
     private record CreateReceipt(String payloadHash, UUID applicationId) {}
     private record RequestState(String applicability, String reason) {}
 
-    private record DraftRows(Draft draft, List<DocumentRequest> requests) {
-        Draft toDraft() {
-            return new Draft(
-                    draft.id(),
-                    draft.revision(),
-                    draft.status(),
-                    draft.legalName(),
-                    draft.tradingName(),
-                    draft.registrationNumber(),
-                    draft.structure(),
-                    draft.applicantName(),
-                    draft.applicantRole(),
-                    draft.applicantEmail(),
-                    draft.applicantPhone(),
-                    draft.premisesAddress(),
-                    draft.premisesName(),
-                    draft.unitApplicable(),
-                    draft.unitNumber(),
-                    draft.tenure(),
-                    List.copyOf(requests),
-                    draft.updatedAt());
+    private record DraftRows(Draft draft, List<DocumentRequest> requests) {}
+
+    private Draft completeDraft(DraftRows rows) {
+        Draft d = rows.draft();
+        List<String> unmet = new ArrayList<>();
+        addMissing(unmet, d.legalName(), "legalName");
+        addMissing(unmet, d.registrationNumber(), "registrationNumber");
+        addMissing(unmet, d.structure(), "structure");
+        addMissing(unmet, d.applicantName(), "applicantName");
+        addMissing(unmet, d.applicantRole(), "applicantRole");
+        addMissing(unmet, d.applicantEmail(), "applicantEmail");
+        addMissing(unmet, d.applicantPhone(), "applicantPhone");
+        addMissing(unmet, d.premisesAddress(), "premisesAddress");
+        if (d.unitApplicable() == null) {
+            unmet.add("unitApplicable");
+        }
+        addMissing(unmet, d.tenure(), "tenure");
+        addMissing(unmet, d.businessType(), "businessType");
+        addMissing(unmet, d.proposedOpeningDate(), "proposedOpeningDate");
+        if (Boolean.TRUE.equals(d.unitApplicable())) {
+            addMissing(unmet, d.unitNumber(), "unitNumber");
+        }
+        if (d.preparationActivities().isEmpty()) {
+            unmet.add("preparationActivities");
+        }
+        if (d.serviceModes().isEmpty()) {
+            unmet.add("serviceModes");
+        }
+        DAYS.stream()
+                .sorted()
+                .filter(day -> !d.operatingHours().containsKey(day))
+                .forEach(day -> unmet.add("operatingHours." + day));
+        rows.requests().stream()
+                .filter(request -> request.applicability().equals("APPLICABLE"))
+                .forEach(request -> unmet.add("documentRequest." + request.id()));
+        unmet.add("declaration.accuracy");
+        unmet.add("declaration.authority");
+        int applicableRequests =
+                (int)
+                        rows.requests().stream()
+                                .filter(request -> request.applicability().equals("APPLICABLE"))
+                                .count();
+        int required =
+                23
+                        + (Boolean.TRUE.equals(d.unitApplicable()) ? 1 : 0)
+                        + applicableRequests;
+        int completed = required - unmet.size();
+        Completion completion =
+                new Completion(
+                        completed,
+                        required,
+                        (100 * completed) / required,
+                        List.copyOf(unmet));
+        return new Draft(
+                d.id(),
+                d.revision(),
+                d.status(),
+                d.legalName(),
+                d.tradingName(),
+                d.registrationNumber(),
+                d.structure(),
+                d.applicantName(),
+                d.applicantRole(),
+                d.applicantEmail(),
+                d.applicantPhone(),
+                d.premisesAddress(),
+                d.premisesName(),
+                d.unitApplicable(),
+                d.unitNumber(),
+                d.tenure(),
+                d.businessType(),
+                d.preparationActivities(),
+                d.serviceModes(),
+                d.operatingHours(),
+                d.proposedOpeningDate(),
+                List.copyOf(rows.requests()),
+                completion,
+                d.updatedAt());
+    }
+
+    private void addMissing(List<String> unmet, Object value, String identifier) {
+        if (value == null) {
+            unmet.add(identifier);
         }
     }
 
     public record DocumentRequest(UUID id, String type, String applicability, String reason) {}
+    public record DayHours(boolean closed, String opens, String closes, Boolean closesNextDay) {}
+    public record Completion(int completed, int required, int percentage, List<String> unmetItemIds) {}
 
     public record Patch(Long expectedRevision, Map<String, Object> fields) {}
 
@@ -634,6 +873,12 @@ public class DraftService {
             Boolean unitApplicable,
             String unitNumber,
             String tenure,
+            String businessType,
+            List<String> preparationActivities,
+            List<String> serviceModes,
+            Map<String, DayHours> operatingHours,
+            String proposedOpeningDate,
             List<DocumentRequest> documentRequests,
+            Completion completion,
             Instant updatedAt) {}
 }

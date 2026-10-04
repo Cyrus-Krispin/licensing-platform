@@ -141,10 +141,12 @@ T06 keeps incomplete premises values saveable, validates explicit values and the
 
 **Deliver:** the operator can complete all form sections and understand remaining submission requirements.
 
-- [ ] Café/restaurant, preparation activities, service modes, seven daily hour entries, and opening date follow reviewed rules.
-- [ ] Display accuracy/authority confirmation and unmet-item errors; capture declarations according to the reviewed submission design.
-- [ ] Progress uses the reviewed server-backed formula and current applicable document readiness. Optional/inapplicable inputs and simulated status do not affect required completion.
-- [ ] The form remains keyboard-operable and saved data survives invalid inputs/network failures. Submission is not enabled by percentage alone.
+- [x] Café/restaurant, preparation activities, service modes, seven daily hour entries, and opening date follow reviewed rules.
+- [x] Display accuracy/authority confirmation and stable unmet-item navigation without capturing declarations before submission.
+- [x] Progress uses the reviewed server-backed formula and current applicable document readiness. Optional/inapplicable inputs and simulated status do not affect required completion.
+- [x] The form remains keyboard-operable and saved data survives invalid inputs/network failures. No submission action is introduced.
+
+T07 accepts the routine initial-draft operations and progress defaults. PATCH omission retains values, explicit null clears nullable business type/opening date, empty arrays/maps clear sets/hours, and malformed supplied types are rejected. Progress describes only the saved server revision. T08 supplies real ready-file state; T10 captures fresh declaration confirmations and actor/time snapshots. The dependent-document correction-resubmit completeness exception remains unaccepted and unimplemented.
 
 **Validation:** valid and boundary-invalid fields/sets/hours/date, conditional denominator calculations, browser error navigation, and persisted complete-field draft. T08 later supplies ready files to the same progress calculation; do not fabricate successful uploads.
 

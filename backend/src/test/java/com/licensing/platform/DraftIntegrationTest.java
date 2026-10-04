@@ -10,6 +10,7 @@ import com.licensing.platform.draft.DraftService;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -62,6 +63,27 @@ class DraftIntegrationTest {
     }
 
     @Test
+    void structuredCreateAndReorderedRetryShareCanonicalReceipt() {
+        Map<String, Object> monday = new LinkedHashMap<>();
+        monday.put("opens", "09:00");
+        monday.put("closed", false);
+        monday.put("closesNextDay", false);
+        monday.put("closes", "17:00");
+        var first = drafts.create("owner-a", "structured-create", Map.of(
+                "preparationActivities", List.of("COOKING", "BAKING"),
+                "serviceModes", List.of("TAKEAWAY", "DINE_IN"),
+                "operatingHours", Map.of("MONDAY", monday)));
+        var retry = drafts.create("owner-a", "structured-create", Map.of(
+                "operatingHours", Map.of("MONDAY", Map.of("closed", false, "opens", "09:00", "closes", "17:00", "closesNextDay", false)),
+                "serviceModes", List.of("DINE_IN", "TAKEAWAY"),
+                "preparationActivities", List.of("BAKING", "COOKING")));
+
+        assertEquals(first.id(), retry.id());
+        assertEquals(List.of("BAKING", "COOKING"), retry.preparationActivities());
+        assertEquals("09:00", retry.operatingHours().get("MONDAY").opens());
+    }
+
+    @Test
     void incompletePatchPersistsAndNullClearsOptionalValue() {
         var draft = drafts.create("owner-a", "retry-2", Map.of());
         var saved =
@@ -84,6 +106,45 @@ class DraftIntegrationTest {
                 drafts.save(
                         draft.id(), "owner-a", new DraftService.Patch(1L, clear));
         assertNull(cleared.tradingName());
+    }
+
+    @Test
+    void operationsNormalizePersistAndDriveSavedProgress() {
+        var draft = drafts.create("owner-a", "operations", Map.of());
+        assertEquals(0, draft.completion().completed());
+        assertEquals(26, draft.completion().required());
+
+        Map<String, Object> hours = new LinkedHashMap<>();
+        hours.put("MONDAY", Map.of("closed", true));
+        hours.put("TUESDAY", Map.of("closed", false, "opens", "09:00", "closes", "17:00", "closesNextDay", false));
+        hours.put("WEDNESDAY", Map.of("closed", false, "opens", "18:00", "closes", "02:00", "closesNextDay", true));
+        var saved = drafts.save(draft.id(), "owner-a", new DraftService.Patch(0L, Map.of(
+                "businessType", "CAFE", "preparationActivities", List.of("COOKING", "BAKING"),
+                "serviceModes", List.of("TAKEAWAY"), "operatingHours", hours,
+                "proposedOpeningDate", "2020-02-29", "unitApplicable", false)));
+
+        assertEquals(List.of("BAKING", "COOKING"), saved.preparationActivities());
+        assertEquals("02:00", saved.operatingHours().get("WEDNESDAY").closes());
+        assertEquals(8, saved.completion().completed());
+        assertEquals(26, saved.completion().required());
+        assertEquals(saved.operatingHours(), drafts.get(draft.id(), "owner-a").operatingHours());
+    }
+
+    @Test
+    void invalidOperationsAreAtomic() {
+        var draft = drafts.create("owner-a", "invalid-operations", Map.of());
+        for (Map<String, Object> invalid : List.of(
+                Map.<String, Object>of("preparationActivities", List.of("COOKING", "COOKING")),
+                Map.<String, Object>of("serviceModes", List.of("CURBSIDE")),
+                Map.<String, Object>of("proposedOpeningDate", "2023-02-29"),
+                Map.<String, Object>of("proposedOpeningDate", "+10000-01-01"),
+                Map.<String, Object>of("proposedOpeningDate", "-0001-01-01"),
+                Map.<String, Object>of("operatingHours", Map.of("MONDAY", Map.of("closed", false, "opens", "09:00", "closes", "09:00", "closesNextDay", false))),
+                Map.<String, Object>of("operatingHours", Map.of("FUNDAY", Map.of("closed", true))),
+                Map.<String, Object>of("operatingHours", Map.of("MONDAY", Map.of("closed", true, "opens", "09:00"))))) {
+            assertThrows(RuntimeException.class, () -> drafts.save(draft.id(), "owner-a", new DraftService.Patch(0L, invalid)));
+        }
+        assertEquals(0, drafts.get(draft.id(), "owner-a").revision());
     }
 
     @Test
@@ -140,7 +201,7 @@ class DraftIntegrationTest {
                                 ready.countDown();
                                 start.await();
                                 return drafts.create(
-                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe"));
+                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe", "preparationActivities", List.of("COOKING", "BAKING"), "operatingHours", Map.of("MONDAY", Map.of("closed", true))));
                             });
             var second =
                     executor.submit(
@@ -148,7 +209,7 @@ class DraftIntegrationTest {
                                 ready.countDown();
                                 start.await();
                                 return drafts.create(
-                                        "owner-a", "concurrent-key", Map.of("legalName", "Cafe"));
+                                        "owner-a", "concurrent-key", Map.of("operatingHours", Map.of("MONDAY", Map.of("closed", true)), "preparationActivities", List.of("BAKING", "COOKING"), "legalName", "Cafe"));
                             });
             assertTrue(ready.await(5, TimeUnit.SECONDS));
             start.countDown();
