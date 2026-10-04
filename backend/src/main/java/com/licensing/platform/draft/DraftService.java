@@ -102,9 +102,13 @@ public class DraftService {
                    d.premises_address, d.premises_name, d.unit_applicable,
                    d.unit_number, d.tenure, d.business_type, d.preparation_activities,
                    d.service_modes, d.operating_hours, d.proposed_opening_date, d.updated_at,
-                   r.id as request_id, r.request_type, r.applicability, r.reason
+                   r.id as request_id, r.request_type, r.applicability, r.reason,
+                   u.id as upload_id, u.original_filename as upload_filename,
+                   u.content_type as upload_content_type, u.byte_size as upload_byte_size,
+                   u.sha256 as upload_sha256, u.created_at as upload_created_at
               from application_draft d
               join document_request r on r.application_id=d.id
+              left join evidence_upload u on u.id=r.current_upload_id
             """;
 
     private final JdbcTemplate database;
@@ -716,7 +720,15 @@ public class DraftService {
                                         resultSet.getObject("request_id", UUID.class),
                                         resultSet.getString("request_type"),
                                         resultSet.getString("applicability"),
-                                        resultSet.getString("reason")));
+                                        resultSet.getString("reason"),
+                                        resultSet.getObject("upload_id", UUID.class) == null ? null :
+                                            new CurrentUpload(
+                                                resultSet.getObject("upload_id", UUID.class),
+                                                resultSet.getString("upload_filename"),
+                                                resultSet.getString("upload_content_type"),
+                                                resultSet.getLong("upload_byte_size"),
+                                                resultSet.getString("upload_sha256"),
+                                                resultSet.getTimestamp("upload_created_at").toInstant())));
                     }
                     return rows.values().stream().map(this::completeDraft).toList();
                 },
@@ -797,7 +809,7 @@ public class DraftService {
                 .filter(day -> !d.operatingHours().containsKey(day))
                 .forEach(day -> unmet.add("operatingHours." + day));
         rows.requests().stream()
-                .filter(request -> request.applicability().equals("APPLICABLE"))
+                .filter(request -> request.applicability().equals("APPLICABLE") && request.currentUpload() == null)
                 .forEach(request -> unmet.add("documentRequest." + request.id()));
         unmet.add("declaration.accuracy");
         unmet.add("declaration.authority");
@@ -850,7 +862,8 @@ public class DraftService {
         }
     }
 
-    public record DocumentRequest(UUID id, String type, String applicability, String reason) {}
+    public record DocumentRequest(UUID id, String type, String applicability, String reason, CurrentUpload currentUpload) {}
+    public record CurrentUpload(UUID id, String filename, String contentType, long byteSize, String sha256, Instant createdAt) {}
     public record DayHours(boolean closed, String opens, String closes, Boolean closesNextDay) {}
     public record Completion(int completed, int required, int percentage, List<String> unmetItemIds) {}
 

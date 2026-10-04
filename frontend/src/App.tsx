@@ -356,6 +356,36 @@ function DayHoursFields({
   );
 }
 
+function EvidenceUpload({ applicationId, revision, request, disabled, onCommitted }: { applicationId: string; revision: number; request: NonNullable<api.Draft["documentRequests"]>[number]; disabled: boolean; onCommitted: (result: api.UploadResult) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [key, setKey] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [progress, setProgress] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  function choose(next: File | null) { setFile(next); setKey(next ? crypto.randomUUID() : null); setMessage(next ? `${next.name} selected. Not uploaded yet.` : ""); }
+  async function upload() {
+    if (!file || uploading) return;
+    const retryKey = key ?? crypto.randomUUID(); setKey(retryKey); setUploading(true); setProgress(0); setMessage("Uploading…");
+    try { const result = await api.uploadEvidence(applicationId, request.id, revision, retryKey, file, setProgress); onCommitted(result); setFile(null); setKey(null); setProgress(100); setMessage(`Saved ${result.upload.filename}. Local form edits were not saved or cleared.`); }
+    catch (cause) { setMessage(`${(cause as Error).message} Choose Retry to safely resend this file.`); }
+    finally { setUploading(false); }
+  }
+  const inputId = `evidence-${request.id}`;
+  return <div className="mt-3 space-y-2">
+    {request.currentUpload && <p className="text-xs"><a className="underline" target="_blank" rel="noreferrer" href={`/api/applications/${applicationId}/evidence/uploads/${request.currentUpload.id}`}>Open saved {request.currentUpload.filename}</a> · {(request.currentUpload.byteSize / 1000).toFixed(1)} KB</p>}
+    {request.applicability === "APPLICABLE" && <>
+      <div className="rounded-md border border-dashed p-3" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choose(event.dataTransfer.files.item(0)); }}>
+        <Label htmlFor={inputId}>{request.currentUpload ? "Replace evidence" : "Upload evidence"}</Label>
+        <Input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" disabled={disabled || uploading} onChange={(event) => choose(event.target.files?.item(0) ?? null)} />
+        <p className="mt-1 text-xs text-muted-foreground">PDF, JPEG, or PNG · maximum 10,000,000 bytes. You can also drop a file here.</p>
+      </div>
+      <Button type="button" size="sm" variant="outline" disabled={!file || disabled || uploading} onClick={upload}>{uploading ? `Uploading ${progress ?? 0}%…` : message.includes("Retry") ? "Retry upload" : request.currentUpload ? "Replace file" : "Upload file"}</Button>
+      {progress !== null && <progress className="w-full" max="100" value={progress} aria-label="Upload progress" />}
+      {message && <p role="status" className="text-xs">{message}</p>}
+    </>}
+  </div>;
+}
+
 function OperatorDrafts() {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
@@ -987,8 +1017,7 @@ function OperatorDrafts() {
             Evidence requirements
           </h3>
           <p className="text-sm text-muted-foreground">
-            Requirements update when this draft is saved. File upload is not
-            available yet.
+            Requirements update when this draft is saved. Ready files count toward saved progress; uploads never save or clear local form edits.
           </p>
         </div>
         <ul className="grid gap-2 sm:grid-cols-2">
@@ -1011,6 +1040,11 @@ function OperatorDrafts() {
                     : "Not required"}
               </p>
               <p className="mt-1 text-muted-foreground">{request.reason}</p>
+              <EvidenceUpload applicationId={draft.id} revision={draft.revision} request={request} disabled={saving || !!conflict} onCommitted={(result) => {
+                const updated = { ...draft, revision: result.revision, documentRequests: draft.documentRequests?.map((item) => item.id === request.id ? { ...item, currentUpload: result.upload } : item) };
+                setDraft(updated); setDrafts((items) => items.map((item) => item.id === updated.id ? updated : item));
+                api.getDraft(draft.id).then((fresh) => { setDraft(fresh); setDrafts((items) => items.map((item) => item.id === fresh.id ? fresh : item)); });
+              }} />
             </li>
           ))}
         </ul>

@@ -330,3 +330,17 @@ Excluded: site/post-site states and workflows, including scheduling and use case
 5. AI warning/result/flag behaviour remains explicitly deferred unless the user later elects to add it; no current proposal restores that cancelled scope.
 
 This specification was synthesized from the approved scope and interview decisions using the installed Matt Pocock `to-spec` guidance, adapted to the explicitly requested local document. No issue tracker publication, code implementation, commits, or automation setup is authorized by its creation.
+
+## Accepted T08 implementation subset and wire API
+
+T08 accepts the initial-`DRAFT` upload rules above. It does not accept or implement T09 simulated processing, T10 submission/declarations/snapshots/officer file access, correction uploads, malware/content/authenticity findings, or live AI. An owner may upload only to a currently applicable request on their editable draft. Officers cannot read draft files. Owner access to every retained immutable upload remains available even if its request later becomes inapplicable.
+
+- `POST /api/applications/{applicationId}/evidence/requests/{requestId}?expectedRevision={revision}` consumes `multipart/form-data` with one `file` part and requires the Spring CSRF header plus `Idempotency-Key`. Success returns `{upload:{id,requestId,filename,contentType,byteSize,sha256,createdAt},revision}`; it never returns a storage key or path.
+- `GET /api/applications/{applicationId}/evidence/uploads/{uploadId}` streams an owner-authorized retained file with its detected media type, safe inline `Content-Disposition`, and `X-Content-Type-Options: nosniff`.
+- Draft `documentRequests[]` adds nullable `currentUpload` with the same public upload metadata. A ready current upload completes that applicable request in saved progress.
+
+The mutation key is scoped to actor/application/request and fingerprints actual bytes, sanitized display filename, and detected content type. Matching committed receipts are returned before stale-revision evaluation; a different fingerprint conflicts. Replacement inserts an immutable upload and moves only the request's current pointer. Bytes are finalized under an opaque generated key before the metadata/pointer/receipt/revision transaction; failure removes only the uncommitted object and leaves the old pointer intact. A missing committed object produces `file_integrity_failure` rather than a false download.
+
+### Private-volume reconciliation
+
+Stop the backend first so there are no active upload writers. Export `FILE_STORAGE_PATH` for the mounted private volume and a PostgreSQL `DATABASE_URL`, then run `scripts/reconcile-private-files.sh`. The script treats **all** `evidence_upload.storage_key` values as committed references (including historical/noncurrent and now-inapplicable uploads), removes only object keys absent from that set, and then clears uncommitted staging parts. For Docker volumes, mount the `private-files` volume into a one-off maintenance container and run the script with network access to the Compose database; never reconcile while the backend is running. Inspect/backup the volume and database before destructive production maintenance.

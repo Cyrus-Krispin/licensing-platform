@@ -132,3 +132,37 @@ test("returns draft field and stale-save errors", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:500}));
   await expect(listDrafts()).rejects.toThrow("temporarily unavailable");
 });
+
+test("uploads evidence with CSRF, retry key, and progress", async () => {
+  const { uploadEvidence } = await import("./api");
+  vi.mocked(fetch).mockResolvedValueOnce(
+    json({ token: "upload-csrf", headerName: "X-XSRF-TOKEN" }),
+  );
+  class FakeRequest {
+    static created: FakeRequest | undefined;
+    constructor() { FakeRequest.created = this; }
+    upload: { onprogress: ((event: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = { onprogress: null };
+    onerror: (() => void) | null = null;
+    onload: (() => void) | null = null;
+    status = 200;
+    responseText = JSON.stringify({ upload: { id: "u1" }, revision: 2 });
+    open = vi.fn();
+    setRequestHeader = vi.fn();
+    send = vi.fn(() => {
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 });
+      this.onload?.();
+    });
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeRequest);
+  const progress = vi.fn();
+
+  await expect(
+    uploadEvidence("a1", "r1", 1, "retry", new File(["x"], "proof.png"), progress),
+  ).resolves.toMatchObject({ revision: 2 });
+  expect(FakeRequest.created?.open).toHaveBeenCalledWith(
+    "POST",
+    "/api/applications/a1/evidence/requests/r1?expectedRevision=1",
+  );
+  expect(FakeRequest.created?.setRequestHeader).toHaveBeenCalledWith("Idempotency-Key", "retry");
+  expect(progress).toHaveBeenCalledWith(50);
+});

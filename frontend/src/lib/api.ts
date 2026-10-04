@@ -28,9 +28,26 @@ export type Draft = {
   serviceModes?: string[];
   operatingHours?: Record<string, { closed: boolean; opens?: string | null; closes?: string | null; closesNextDay?: boolean | null }>;
   proposedOpeningDate?: string | null;
-  documentRequests?: Array<{ id: string; type: string; applicability: "APPLICABLE" | "NOT_APPLICABLE" | "NEEDS_INPUT"; reason: string }>;
+  documentRequests?: Array<{ id: string; type: string; applicability: "APPLICABLE" | "NOT_APPLICABLE" | "NEEDS_INPUT"; reason: string; currentUpload?: EvidenceUpload | null }>;
   completion?: { completed: number; required: number; percentage: number; unmetItemIds: string[] };
 };
+
+export type EvidenceUpload = { id: string; requestId: string; filename: string; contentType: string; byteSize: number; sha256: string; createdAt: string };
+export type UploadResult = { upload: EvidenceUpload; revision: number };
+export async function uploadEvidence(applicationId: string, requestId: string, revision: number, key: string, file: File, onProgress?: (percent: number) => void): Promise<UploadResult> {
+  const csrf = await getCsrf();
+  const data = new FormData(); data.append("file", file);
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `/api/applications/${applicationId}/evidence/requests/${requestId}?expectedRevision=${revision}`);
+    request.setRequestHeader(csrf.headerName, csrf.token); request.setRequestHeader("Idempotency-Key", key);
+    request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress?.(Math.round(100 * event.loaded / event.total)); };
+    request.onerror = () => reject(new ApiError("Upload failed. Your previous file is unchanged.", 0));
+    request.onload = () => { let body: { message?: string; fieldErrors?: Record<string, string> } = {}; try { body = JSON.parse(request.responseText) as typeof body; } catch { body = {}; }
+      if (request.status >= 200 && request.status < 300) resolve(body as UploadResult); else reject(new ApiError(body.message ?? "Upload failed. Your previous file is unchanged.", request.status, body.fieldErrors)); };
+    request.send(data);
+  });
+}
 export class ApiError extends Error {
   constructor(message: string, public status: number, public fieldErrors: Record<string, string> = {}) { super(message); }
 }
