@@ -24,3 +24,5 @@
 - [x] Clear selections when evidence becomes non-applicable
 - [x] README and scope reflect the delivered MVP and explicit deferrals
 - [x] Regression checks and isolated full correction-to-approval browser verification
+
+- [x] Remove operating hours throughout the UI, completeness gates and new correction targets; preserve retained data; verify the complete flow without hours and update PR #27

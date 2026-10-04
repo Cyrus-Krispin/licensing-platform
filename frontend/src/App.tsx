@@ -47,7 +47,6 @@ const fieldNames = [
 type DraftField = (typeof fieldNames)[number];
 type DraftValues = Record<DraftField, string | boolean | null>;
 type PatchFields = Record<string, unknown>;
-type DayHours = NonNullable<api.Draft["operatingHours"]>[string];
 
 const fieldLabels: Record<DraftField, string> = {
   legalName: "Legal name",
@@ -76,16 +75,6 @@ const activities = [
   "PREPACKAGED_FOOD_SALE",
 ];
 const modes = ["DINE_IN", "TAKEAWAY", "DELIVERY"];
-const days = [
-  "MONDAY",
-  "TUESDAY",
-  "WEDNESDAY",
-  "THURSDAY",
-  "FRIDAY",
-  "SATURDAY",
-  "SUNDAY",
-];
-
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return [...value].sort();
   if (value && typeof value === "object") {
@@ -104,11 +93,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(canonicalValue(value));
 }
 
-function dayState(value: DayHours | undefined) {
-  if (!value) return "NOT_SET";
-  return value.closed ? "CLOSED" : "OPEN";
-}
-
 function operationValues(data: FormData): PatchFields {
   return {
     preparationActivities: data
@@ -116,22 +100,7 @@ function operationValues(data: FormData): PatchFields {
       .map(String)
       .sort(),
     serviceModes: data.getAll("serviceModes").map(String).sort(),
-    operatingHours: Object.fromEntries(
-      [...days].sort().flatMap((day) => {
-        const state = String(data.get(`${day}.state`) ?? "NOT_SET");
-        if (state === "NOT_SET") return [];
-        const hours =
-          state === "CLOSED"
-            ? { closed: true }
-            : {
-                closed: false,
-                opens: String(data.get(`${day}.opens`) ?? ""),
-                closes: String(data.get(`${day}.closes`) ?? ""),
-                closesNextDay: data.get(`${day}.closesNextDay`) === "true",
-              };
-        return [[day, hours]];
-      }),
-    ),
+
   };
 }
 
@@ -154,54 +123,6 @@ function mergeConflictEdits(
     });
     merged[field] = [...result].sort();
   });
-  if (edits.operatingHours) {
-    const local = edits.operatingHours as Record<string, DayHours>;
-    const baseHours = base.operatingHours ?? {};
-    const hours = { ...(latest.operatingHours ?? {}) };
-    new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach(
-      (day) => {
-        const baseDay = baseHours[day];
-        const localDay = local[day];
-        const latestDay = hours[day];
-        const original = canonicalValue(baseHours[day]) as Record<
-          string,
-          unknown
-        > | null;
-        const changed = canonicalValue(local[day]) as Record<
-          string,
-          unknown
-        > | null;
-        if (canonical(original) === canonical(changed)) return;
-        const remoteStateChanged = dayState(latestDay) !== dayState(baseDay);
-        const localStateChanged = dayState(localDay) !== dayState(baseDay);
-        if (remoteStateChanged || localStateChanged) {
-          if (localDay) hours[day] = localDay;
-          else delete hours[day];
-          return;
-        }
-        if (!changed) {
-          delete hours[day];
-          return;
-        }
-        const current = {
-          ...((canonicalValue(hours[day]) as Record<string, unknown> | null) ??
-            {}),
-        };
-        const keys = new Set([
-          ...Object.keys(original ?? {}),
-          ...Object.keys(changed),
-        ]);
-        keys.forEach((key) => {
-          if (canonical(original?.[key]) !== canonical(changed[key])) {
-            if (changed[key] === undefined) delete current[key];
-            else current[key] = changed[key];
-          }
-        });
-        hours[day] = current as DayHours;
-      },
-    );
-    merged.operatingHours = hours;
-  }
   return merged;
 }
 
@@ -230,18 +151,6 @@ function documentRequestLabel(type: string) {
     .join(" ");
 }
 
-function describeHours(hours: api.Draft["operatingHours"] = {}) {
-  return days
-    .map((day) => {
-      const value = hours?.[day];
-      if (!value) return `${documentRequestLabel(day)}: not set`;
-      if (value.closed) return `${documentRequestLabel(day)}: closed`;
-      const overnight = value.closesNextDay ? " next day" : "";
-      return `${documentRequestLabel(day)}: ${value.opens}–${value.closes}${overnight}`;
-    })
-    .join("; ");
-}
-
 function describeSelection(values: string[] | undefined) {
   return values?.length
     ? values.map(documentRequestLabel).join(", ")
@@ -251,9 +160,6 @@ function describeSelection(values: string[] | undefined) {
 function unmetLabel(draft: api.Draft, id: string) {
   if (id === "preparationActivities") return "Preparation activities";
   if (id === "serviceModes") return "Service modes";
-  if (id.startsWith("operatingHours.")) {
-    return `${documentRequestLabel(id.split(".")[1])} hours`;
-  }
   if (id.startsWith("documentRequest.")) {
     const requestId = id.slice("documentRequest.".length);
     const request = draft.documentRequests?.find(
@@ -278,99 +184,6 @@ function focusUnmet(id: string) {
     ? target
     : target?.querySelector<HTMLElement>("input,select,button");
   (control ?? target)?.focus();
-}
-
-function DayHoursFields({
-  day,
-  initial,
-  disabled,
-  error,
-}: {
-  day: string;
-  initial?: DayHours;
-  disabled: boolean;
-  error?: string;
-}) {
-  const [state, setState] = useState(
-    initial ? (initial.closed ? "CLOSED" : "OPEN") : "NOT_SET",
-  );
-  const errorId = error ? `${day}.error` : undefined;
-  const dayLabel = documentRequestLabel(day);
-  return (
-    <div
-      id={`operatingHours.${day}`}
-      className="space-y-3 rounded-md border p-3"
-    >
-      <Label htmlFor={`${day}.state`}>{dayLabel} hours</Label>
-      <NativeSelect
-        id={`${day}.state`}
-        name={`${day}.state`}
-        value={state}
-        onChange={(event) => setState(event.target.value)}
-        disabled={disabled}
-        aria-invalid={!!error}
-        aria-describedby={errorId}
-        className="w-full"
-      >
-        <NativeSelectOption value="NOT_SET">Not set</NativeSelectOption>
-        <NativeSelectOption value="CLOSED">Closed</NativeSelectOption>
-        <NativeSelectOption value="OPEN">Open</NativeSelectOption>
-      </NativeSelect>
-      {state === "OPEN" && (
-        <div className="flex flex-col gap-4">
-          <div>
-            <Label htmlFor={`${day}.opens`}>Opens on {dayLabel}</Label>
-            <Input
-              id={`${day}.opens`}
-              name={`${day}.opens`}
-              type="time"
-              defaultValue={initial?.opens ?? ""}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-          </div>
-          <div>
-            <Label htmlFor={`${day}.closes`}>Closes on {dayLabel}</Label>
-            <Input
-              id={`${day}.closes`}
-              name={`${day}.closes`}
-              type="time"
-              defaultValue={initial?.closes ?? ""}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id={`${day}.closesNextDay`}
-              name={`${day}.closesNextDay`}
-              value="true"
-              defaultChecked={!!initial?.closesNextDay}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-            <Label htmlFor={`${day}.closesNextDay`}>
-              Closes next day for {dayLabel}
-            </Label>
-          </div>
-        </div>
-      )}
-      {state === "CLOSED" && (
-        <p className="text-xs text-muted-foreground">
-          Choosing Closed explicitly clears any saved times for this day when
-          you save.
-        </p>
-      )}
-      {error && (
-        <p id={`${day}.error`} className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </div>
-  );
 }
 
 function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
@@ -488,24 +301,13 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
         )
         .map((field) => [field, localValues[field]]),
     );
-    if (base.status !== "DRAFT") {
-      const hours = { ...(base.operatingHours ?? {}) };
-      const local = operations.operatingHours as Record<string, DayHours>;
-      days
-        .filter((day) => canEdit(`operatingHours.${day}`))
-        .forEach((day) => {
-          if (local[day]) hours[day] = local[day];
-          else delete hours[day];
-        });
-      operations.operatingHours = hours;
-    }
     Object.entries(operations).forEach(([field, value]) => {
-      if (field !== "operatingHours" && !canEdit(field)) return;
+      if (!canEdit(field)) return;
       if (
         canonical(value) !==
         canonical(
           base[field as keyof api.Draft] ??
-            (field === "operatingHours" ? {} : []),
+            ([]),
         )
       ) {
         fields[field] = value;
@@ -642,9 +444,6 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
 
   const conflictPreview = conflict
     ? mergeConflictEdits(conflictBase ?? draft, conflict, conflictEdits)
-    : null;
-  const conflictLocal = conflictBase
-    ? ({ ...conflictBase, ...conflictEdits } as api.Draft)
     : null;
 
   const input = (name: DraftField, label: string, required = false) => (
@@ -814,28 +613,9 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                     {describeSelection(conflictPreview?.serviceModes)}
                   </dd>
                 </div>
-                <div className="sm:col-span-2">
-                  <dt className="font-medium">Opening hours</dt>
-                  <dd>
-                    <strong>Original:</strong>{" "}
-                    {describeHours(conflictBase?.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>Saved:</strong>{" "}
-                    {describeHours(conflict.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>Your complete local edit:</strong>{" "}
-                    {describeHours(conflictLocal?.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>After keeping edits:</strong>{" "}
-                    {describeHours(conflictPreview?.operatingHours)}
-                  </dd>
-                </div>
               </dl>
               <p className="mb-4 text-xs text-muted-foreground">
-                Keep and review applies only your changed selections and hour
+                Keep and review applies only your changed selections and field
                 values over the latest saved revision. If both tabs changed the
                 same value, your explicit choice keeps your local value for
                 review before saving.
@@ -1179,25 +959,6 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
               )}
             </fieldset>
           </div>
-          <fieldset className="space-y-3">
-            <legend className="font-medium">Opening hours <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></legend>
-            <p className="text-sm text-muted-foreground">Choose Open or Closed for every day. Closed days count as complete; Not set is an unanswered required item.</p>
-            {days.map((day) => (
-              <DayHoursFields
-                key={day}
-                day={day}
-                initial={
-                  (editDefaults?.operatingHours ?? draft.operatingHours ?? {})[
-                    day
-                  ]
-                }
-                disabled={
-                  saving || !!conflict || !canEdit(`operatingHours.${day}`)
-                }
-                error={errors[`operatingHours.${day}`]}
-              />
-            ))}
-          </fieldset>
         </fieldset>
       </form>
         <section id="application-evidence" tabIndex={-1} aria-labelledby="requirements-heading" className="flex scroll-mt-36 flex-col gap-4 border-t pt-6">

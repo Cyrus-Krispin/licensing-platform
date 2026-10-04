@@ -177,3 +177,11 @@ Validation: both reported regressions first failed in focused tests, then passed
 Verified submission footer (isolated test application):
 
 ![Save draft and white Submit application button in one bottom row beneath fresh declarations](ui-review/submit-actions.png)
+
+### Operating hours removed
+
+The user confirmed removal throughout the app, including submission requirements. Operating-hour inputs, saved-review rows, conflict previews and new officer correction targets are removed. Completion no longer counts seven weekdays; initial submission, resubmission and approval use the remaining required fields/evidence and fresh declarations. Legacy stored values and immutable history are preserved, and ordinary form saves do not send an empty operating-hours patch. Existing compatibility storage/validation remains available rather than destructively migrating submitted records.
+
+UI tests for retired hour controls/merging were replaced with retained-data protection and remaining field/set conflict checks; backend compatibility tests still cover legacy values. Frontend check passed 60 tests; backend verify passed 57 tests with nine skips. All six Chromium tests passed in an isolated Compose stack, including complete submission/correction/resubmission/approval without hours and two-tab field conflict recovery. README, scope and specification describe the removal. Markdown links/whitespace passed, and the local stack is healthy on 8081. The temporary test stack and volumes were removed after verification.
+
+![Operations section without operating-hour controls](ui-review/no-operating-hours.png)

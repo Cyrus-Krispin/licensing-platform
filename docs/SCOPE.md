@@ -25,12 +25,14 @@ The following fields are required unless marked optional or conditional. Enumera
 | Business identity | Legal name, registration number, business structure; optional trading name |
 | Applicant/contact | Applicant name, role, email, phone |
 | Premises | Address, owned/rented tenure; an explicit unit-applicability Yes/No choice, unit number when applicable; optional premises name |
-| Food operations | Business type, at least one preparation activity, at least one service mode (dine-in/takeaway/delivery), operating hours or “closed” for each day, proposed opening date |
+| Food operations | Business type, at least one preparation activity, at least one service mode (dine-in/takeaway/delivery), proposed opening date |
 | Declaration | Confirmation of accuracy and authority to apply |
 
 Required evidence: business registration, premises layout, and permission to use the premises for a food business. Lease evidence applies to rented premises; ownership evidence applies to owned premises. An authorization letter is required when the applicant acts as a representative. Officers may request missing or additional evidence only when publishing a fixed correction set during an officer review round.
 
 Accept **PDF, JPEG, and PNG**, at most **10 MB per file**, with one current file per document request. Replacing a document creates a new file record; previously submitted files remain available to their submission versions. Validate formats and fictional product consistency on key paths, without implying checks against an official register or real jurisdiction's laws.
+
+Operating hours have been removed from application entry, review screens and completeness/submission requirements. Existing stored values and immutable submission records are retained for compatibility; ordinary form saves do not overwrite them.
 
 ## Functional coverage
 

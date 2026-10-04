@@ -10,7 +10,7 @@ test("save retains file selection, review shows saved answers, and Applications 
     premisesAddress: "10 Example Street", premisesName: "", unitApplicable: false, unitNumber: "", tenure: "OWNED",
     businessType: "CAFE", proposedOpeningDate: "2026-10-04", preparationActivities: ["COOKING"], serviceModes: ["DINE_IN"],
     operatingHours: Object.fromEntries(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].map((day) => [day, { closed: true }])),
-    completion: { completed: 24, required: 26, percentage: 92, unmetItemIds: ["declaration.accuracy", "declaration.authority"] },
+    completion: { completed: 15, required: 17, percentage: 88, unmetItemIds: ["declaration.accuracy", "declaration.authority"] },
     documentRequests: [{ id: "registration", type: "BUSINESS_REGISTRATION", applicability: "APPLICABLE", reason: "Required for every application.", currentUpload: null as typeof upload | null }],
   };
   await page.route("**/api/**", async (route) => {
@@ -40,6 +40,9 @@ test("save retains file selection, review shows saved answers, and Applications 
   });
   await page.goto("/");
   await page.getByRole("button", { name: /Example Cafe Draft Revision 1/ }).click();
+  await expect(page.getByRole("group", { name: /Opening hours/ })).toHaveCount(0);
+  await page.getByRole("group", { name: "Operations", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("no-operating-hours.png") });
   await page.getByLabel("Trading name", { exact: true }).fill("New trading name");
   await page.getByRole("link", { name: "Applications", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();

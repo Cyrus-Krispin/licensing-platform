@@ -63,18 +63,6 @@ test("operator and officer complete targeted corrections, retained versions and 
     .getByRole("checkbox", { name: "Dine In", exact: true })
     .check();
   await operator.getByLabel(/Proposed opening date/).fill("2026-12-01");
-  for (const day of [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-  ])
-    await operator
-      .getByLabel(`${day} hours`, { exact: true })
-      .selectOption("CLOSED");
   await operator
     .getByRole("button", { name: "Save draft", exact: true })
     .click();

@@ -57,20 +57,7 @@ const fieldLabels: Record<string, string> = {
   proposedOpeningDate: "Proposed opening date",
   preparationActivities: "Preparation activities",
   serviceModes: "Service modes",
-  ...Object.fromEntries(
-    [
-      "MONDAY",
-      "TUESDAY",
-      "WEDNESDAY",
-      "THURSDAY",
-      "FRIDAY",
-      "SATURDAY",
-      "SUNDAY",
-    ].map((day) => [
-      `operatingHours.${day}`,
-      `${day[0]}${day.slice(1).toLowerCase()} hours`,
-    ]),
-  ),
+
 };
 function display(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not set";

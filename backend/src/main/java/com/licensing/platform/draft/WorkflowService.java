@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WorkflowService {
     private static final Set<String> FIELDS = Set.of("legalName", "tradingName", "registrationNumber", "structure", "applicantName", "applicantRole", "applicantEmail", "applicantPhone", "premisesAddress", "premisesName", "unitApplicable", "unitNumber", "tenure", "businessType", "preparationActivities", "serviceModes", "proposedOpeningDate");
-    private static final Set<String> DAYS = Set.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY");
     private final JdbcTemplate db;
     private final ObjectMapper mapper;
     private final DraftService drafts;
@@ -95,7 +94,7 @@ public class WorkflowService {
                 String title = null;
                 if (kind.equals("FIELD")) {
                     target=text(body,"target",100);
-                    if (!FIELDS.contains(target) && !(target.startsWith("operatingHours.") && DAYS.contains(target.substring("operatingHours.".length())))) bad("Unknown field target");
+                    if (!FIELDS.contains(target)) bad("Unknown field target");
                 } else if (kind.equals("DOCUMENT")) {
                     target=uuid(body,"target").toString();
                     if (count("select count(*) from document_request where application_id=? and id=?",app,UUID.fromString(target))!=1) bad("Document request does not belong to this application");

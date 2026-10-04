@@ -41,16 +41,6 @@ for (const account of [
         .selectOption("CAFE");
       await page.getByRole("checkbox", { name: "Cooking" }).check();
       await page.getByRole("checkbox", { name: "Dine In" }).check();
-      await page.getByLabel("Monday hours").selectOption("CLOSED");
-      await page.getByLabel("Tuesday hours").selectOption("OPEN");
-      await page.getByLabel("Opens on Tuesday").fill("09:00");
-      await page.getByLabel("Closes on Tuesday").fill("17:00");
-      await page.getByLabel("Wednesday hours").selectOption("OPEN");
-      await page.getByLabel("Opens on Wednesday").fill("18:00");
-      await page.getByLabel("Closes on Wednesday").fill("02:00");
-      await page
-        .getByRole("checkbox", { name: "Closes next day for Wednesday" })
-        .check();
       await page.getByLabel(/Proposed opening date/).fill("2020-02-29");
       await page.getByRole("button", { name: "Save draft" }).click();
       await expect(
@@ -83,11 +73,6 @@ for (const account of [
       await expect(
         page.getByRole("combobox", { name: "Business type (required to submit)", exact: true }),
       ).toHaveValue("CAFE");
-      await expect(page.getByLabel("Monday hours")).toHaveValue("CLOSED");
-      await expect(page.getByLabel("Tuesday hours")).toHaveValue("OPEN");
-      await expect(
-        page.getByRole("checkbox", { name: "Closes next day for Wednesday" }),
-      ).toBeChecked();
       await expect(
         page.getByRole("heading", { name: /Saved completion:/ }),
       ).toBeVisible();
@@ -146,7 +131,7 @@ for (const account of [
   });
 }
 
-test("two tabs preserve different weekday edits through explicit conflict review", async ({
+test("two tabs preserve different field edits through explicit conflict review", async ({
   context,
 }) => {
   const first = await context.newPage();
@@ -159,18 +144,18 @@ test("two tabs preserve different weekday edits through explicit conflict review
   const second = await context.newPage();
   await second.goto("/");
   await second.getByRole("button", { name: "Untitled draft" }).first().click();
-  await second.getByLabel("Tuesday hours").selectOption("CLOSED");
+  await second.getByLabel("Trading name").fill("Remote trading name");
   await second.getByRole("button", { name: "Save draft" }).click();
   await expect(
     second.getByRole("status").filter({ hasText: "Saved revision 1" }),
   ).toBeVisible();
 
-  await first.getByLabel("Monday hours").selectOption("CLOSED");
+  await first.getByLabel(/Legal name/).fill("Local legal name");
   await first.getByRole("button", { name: "Save draft" }).click();
   await expect(first.getByText("Saved draft changed")).toBeVisible();
   await first.getByRole("button", { name: "Keep and review my edits" }).click();
-  await expect(first.getByLabel("Monday hours")).toHaveValue("CLOSED");
-  await expect(first.getByLabel("Tuesday hours")).toHaveValue("CLOSED");
+  await expect(first.getByLabel(/Legal name/)).toHaveValue("Local legal name");
+  await expect(first.getByLabel("Trading name")).toHaveValue("Remote trading name");
   await first.getByRole("button", { name: "Save draft" }).click();
   await expect(
     first.getByRole("status").filter({ hasText: "Saved revision 2" }),
