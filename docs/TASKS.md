@@ -169,9 +169,9 @@ T07 accepts the routine initial-draft operations and progress defaults. PATCH om
 
 **Deliver:** per-file basic mock status changes appear without manual reload.
 
-- [ ] Use reviewed queued/running/completed/error/retry semantics and durable restart recovery; expose the status to each authorized role when its document is visible.
-- [ ] Label processing as simulated and avoid approval/compliance claims, AI warnings, flags, confidence, findings, live API integration, or dual modes.
-- [ ] Keep upload readiness distinct from simulated processing; apply only the reviewed submission-gating rule.
+- [x] Use reviewed queued/running/completed/error/retry semantics and durable restart recovery; expose the status to each authorized role when its document is visible.
+- [x] Label processing as simulated and avoid approval/compliance claims, AI warnings, flags, confidence, findings, live API integration, or dual modes.
+- [x] Keep upload readiness distinct from simulated processing; apply only the reviewed submission-gating rule.
 
 **Validation:** browser state updates without manual reload, interrupted-job recovery, failure/retry, permission checks, and assertions that no AI finding/approval payload is generated. Officer-facing integration is verified again after T10.
 
@@ -343,3 +343,7 @@ The PR #8 feature slice records the accepted technical baseline and implements T
 - [ ] Add a read-only PR check, document its exact check name and failure evidence, and consider ruleset enforcement only after that exact check has run green.
 
 **Not authorized now:** scanner installation, account/project creation, secret requests, live Sonar checks, paid-service commitment, or claims about free plans. Existing coverage, Gitleaks, dependency, packaged-JAR, image, Compose, and browser checks remain required.
+
+## Local expanded core delivery — issue #25 (2026-10-04)
+
+The user authorized local completion of the core across the previously separated T09–T13/T15/T17 boundaries. Backend implementation now includes status-only durable processing, initial submission, officer review/final decisions, frozen targeted field/document/additional-evidence rounds, responses/resubmission/resolution, immutable full snapshots/files/events, retry receipts and recipient notifications. PostgreSQL integration tests execute the workflow submission and decision races with zero skips. Final clean PostgreSQL `verify` passed 54 tests with zero skips and the existing coverage gate. Independent source review found a reissue/deletion approval bypass and correction-processing retry restriction; both were repaired and regression-tested. Frontend/browser acceptance and exact-head hosted checks remain publication requirements; T14 templates and full comparison polish are deferred. T16 remains excluded; the conditional-evidence completeness decision remains pending and no exception was implemented.

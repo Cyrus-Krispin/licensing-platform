@@ -35,7 +35,7 @@ public class AuthController {
     Map<String, String> officer(Principal principal) {
         return workspace(
                 "Officer workspace",
-                "Submitted applications will appear in a later product slice.",
+                "Review submitted applications, request targeted corrections, and record final decisions.",
                 principal);
     }
 

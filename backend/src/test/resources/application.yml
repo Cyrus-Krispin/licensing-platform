@@ -11,3 +11,7 @@ server:
     session:
       cookie:
         secure: true
+
+licensing:
+  simulation:
+    enabled: false

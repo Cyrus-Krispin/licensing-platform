@@ -17,7 +17,14 @@ async function responseError(
 export type Draft = {
   id: string;
   revision: number;
-  status: "DRAFT";
+  status:
+    | "DRAFT"
+    | "APPLICATION_RECEIVED"
+    | "UNDER_REVIEW"
+    | "PENDING_PRE_SITE_RESUBMISSION"
+    | "PRE_SITE_RESUBMITTED"
+    | "APPROVED"
+    | "REJECTED";
   updatedAt: string;
   legalName: string | null;
   tradingName: string | null;
@@ -241,4 +248,141 @@ export async function logout(): Promise<void> {
     headers: { [csrf.headerName]: csrf.token },
   });
   if (!response.ok) throw await responseError(response, "Sign out failed");
+}
+
+export type ProcessingStatus = {
+  uploadId: string;
+  requestId: string;
+  state: "QUEUED" | "CHECKING" | "COMPLETE" | "ERROR";
+  attempt: number;
+  queuedAt: string;
+  checkingAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+};
+export async function processingStatuses(
+  applicationId: string,
+): Promise<ProcessingStatus[]> {
+  const response = await fetch(
+    `/api/applications/${applicationId}/evidence/processing`,
+  );
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "Processing status could not be refreshed",
+    );
+  return response.json();
+}
+export async function retryProcessing(
+  applicationId: string,
+  uploadId: string,
+  key: string,
+): Promise<{ status: ProcessingStatus; resultingAttempt: number }> {
+  const response = await csrfRequest(
+    `/api/applications/${applicationId}/evidence/processing/${uploadId}/retry`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: "{}",
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(
+      body.message ?? "The simulated check could not be retried",
+      response.status,
+    );
+  }
+  return response.json();
+}
+
+export type CaseSummary = {
+  id: string;
+  status: Draft["status"];
+  revision: number;
+  latestVersion: number;
+  updatedAt: string;
+  legalName: string | null;
+};
+export type CaseIssue = {
+  id: string;
+  kind: "FIELD" | "DOCUMENT" | "ADDITIONAL";
+  target: string | null;
+  text: string;
+  title: string | null;
+  state: "DRAFT" | "OPEN" | "AWAITING_REVIEW" | "RESOLVED" | "REISSUED";
+  round: number;
+  reviewedVersion: number;
+  response: string | null;
+};
+export type CaseDetail = Omit<CaseSummary, "legalName" | "updatedAt"> & {
+  round: number;
+  working: Draft | null;
+  versions: Array<{
+    number: number;
+    submittedBy: string;
+    submittedAt: string;
+    snapshot: Draft;
+    accuracy: boolean;
+    authority: boolean;
+  }>;
+  issues: CaseIssue[];
+  events: Array<{
+    id: string;
+    type: string;
+    actor: string;
+    createdAt: string;
+    versionNumber: number;
+    detail: Record<string, unknown>;
+  }>;
+};
+export type Notification = {
+  id: string;
+  applicationId: string;
+  message: string;
+  createdAt: string;
+  readAt: string | null;
+};
+async function workflowResponse<T>(response: Response): Promise<T> {
+  if (response.ok) return response.json();
+  const body = await response.json().catch(() => ({}));
+  throw new ApiError(
+    body.message ?? "The workflow request failed. Please retry.",
+    response.status,
+    body.fieldErrors,
+  );
+}
+export async function listCases(): Promise<CaseSummary[]> {
+  return workflowResponse(await fetch("/api/cases"));
+}
+export async function getCase(id: string): Promise<CaseDetail> {
+  return workflowResponse(await fetch(`/api/cases/${id}`));
+}
+export async function caseCommand(
+  detail: CaseDetail,
+  command: string,
+  fields: Record<string, unknown>,
+  key: string,
+): Promise<CaseDetail> {
+  return workflowResponse(
+    await csrfRequest(`/api/cases/${detail.id}/${command}`, {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: JSON.stringify({
+        expectedRevision: detail.revision,
+        expectedVersion: detail.latestVersion,
+        ...fields,
+      }),
+    }),
+  );
+}
+export async function notifications(): Promise<Notification[]> {
+  return workflowResponse(await fetch("/api/notifications"));
+}
+export async function readNotification(id: string): Promise<void> {
+  const response = await csrfRequest(`/api/notifications/${id}/read`, {
+    method: "POST",
+    body: "{}",
+  });
+  if (!response.ok) await workflowResponse(response);
 }

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
@@ -14,6 +14,13 @@ vi.mock("./lib/api", () => ({
   createDraft: vi.fn(),
   saveDraft: vi.fn(),
   uploadEvidence: vi.fn(),
+  processingStatuses: vi.fn().mockResolvedValue([]),
+  retryProcessing: vi.fn(),
+  notifications: vi.fn().mockResolvedValue([]),
+  listCases: vi.fn().mockResolvedValue([]),
+  getCase: vi.fn(),
+  caseCommand: vi.fn(),
+  readNotification: vi.fn(),
 }));
 
 const workspace = {
@@ -79,6 +86,9 @@ beforeEach(() => {
   vi.mocked(api.workspace).mockResolvedValue(workspace);
   vi.mocked(api.logout).mockResolvedValue();
   vi.mocked(api.listDrafts).mockResolvedValue([]);
+  vi.mocked(api.notifications).mockResolvedValue([]);
+  vi.mocked(api.listCases).mockResolvedValue([]);
+  vi.mocked(api.processingStatuses).mockResolvedValue([]);
 });
 
 describe("authentication workspace", () => {
@@ -1161,4 +1171,26 @@ describe("authentication workspace", () => {
       screen.getByRole("heading", { name: "Operator workspace" }),
     ).toBeVisible();
   });
+});
+
+test("simulated status polling preserves edits and unknown retry uses the same key", async () => {
+  const user = userEvent.setup();
+  const upload: api.EvidenceUpload = {id:"file",requestId:"lease-request",filename:"lease.pdf",contentType:"application/pdf",byteSize:100,sha256:"hash",createdAt:"2026-10-04T00:00:00Z",ready:true};
+  const draft = premisesDraft({documentRequests:[{...requests("RENTED")[0],currentUpload:upload}]});
+  const processing: api.ProcessingStatus = {uploadId:"file",requestId:"lease-request",state:"ERROR",attempt:1,queuedAt:"2026-10-04T00:00:00Z",checkingAt:null,completedAt:null,updatedAt:"2026-10-04T00:00:00Z"};
+  vi.mocked(api.me).mockResolvedValue({username:"operator",role:"OPERATOR"});
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.processingStatuses).mockResolvedValue([processing]);
+  vi.mocked(api.retryProcessing).mockRejectedValueOnce(new Error("Lost response")).mockResolvedValueOnce({status:{...processing,state:"QUEUED",attempt:2},resultingAttempt:2});
+  render(<App/>);
+  await user.click(await screen.findByTitle("Cafe"));
+  await user.clear(screen.getByLabelText(/Legal name/));
+  await user.type(screen.getByLabelText(/Legal name/),"Unsaved Cafe");
+  await user.click(await screen.findByRole("button",{name:"Retry simulated check"}));
+  await screen.findByText("Lost response");
+  await user.click(screen.getByRole("button",{name:"Retry simulated check"}));
+  await waitFor(()=>expect(api.retryProcessing).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(api.retryProcessing).mock.calls[0]).toEqual(vi.mocked(api.retryProcessing).mock.calls[1]);
+  expect(screen.getByLabelText(/Legal name/)).toHaveValue("Unsaved Cafe");
+  expect(api.saveDraft).not.toHaveBeenCalled();
 });
