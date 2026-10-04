@@ -219,18 +219,41 @@ function Snapshot({
   );
 }
 
+function SavedApplicationReview({ detail }: { detail: api.CaseDetail }) {
+  const draft = detail.working;
+  if (!draft) return null;
+  return (
+    <section className="flex flex-col gap-4" aria-label="Review saved application">
+      <h3 className="font-semibold">Review saved application</h3>
+      <p className="text-sm text-muted-foreground">These are your saved details and uploaded files. Review them, then confirm the declarations and submit. Saving a draft does not submit it.</p>
+      <a href="#application-business" className="text-sm underline">Back to application details</a>
+      <dl className="flex flex-col divide-y">
+        {Object.entries(fieldLabels).map(([path, label]) => <div key={path} className="min-w-0 py-3 text-sm"><dt className="font-medium">{label}</dt><dd className="break-words">{display(valueAt(draft, path))}</dd></div>)}
+      </dl>
+      <h4 className="font-medium">Saved evidence</h4>
+      <ul className="flex flex-col gap-3">
+        {draft.documentRequests?.filter((item) => item.applicability === "APPLICABLE").map((item) => <li key={item.id} className="text-sm"><p>{display(item.type)}</p>{item.currentUpload ? <a className="break-words underline" href={`/api/applications/${detail.id}/evidence/uploads/${item.currentUpload.id}`} target="_blank" rel="noreferrer">{item.currentUpload.filename}</a> : <p className="text-status-warning">No saved file yet</p>}</li>)}
+      </ul>
+    </section>
+  );
+}
+
 export function CasePanel({
   id,
   role,
   beforeCommand,
   onChanged,
   onDetail,
+  refreshRequest = 0,
+  onActivityChange,
 }: {
   id: string;
   role: api.User["role"];
   beforeCommand?: (latest: api.CaseDetail) => void;
   onChanged?: (detail: api.CaseDetail) => void;
   onDetail?: (detail: api.CaseDetail) => void;
+  refreshRequest?: number;
+  onActivityChange?: (active: boolean) => void;
 }) {
   const [detail, setDetail] = useState<api.CaseDetail | null>(null);
   const [error, setError] = useState("");
@@ -254,6 +277,8 @@ export function CasePanel({
     try {
       const current = await api.getCase(id);
       setDetail(current);
+      setAccuracy(false);
+      setAuthority(false);
       onDetailRef.current?.(current);
       setError("");
     } catch (cause) {
@@ -262,7 +287,10 @@ export function CasePanel({
   }, [id]);
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load]);
+  }, [load, refreshRequest]);
+  useEffect(() => {
+    void Promise.resolve().then(() => onActivityChange?.(busy || !!pending));
+  }, [busy, pending, onActivityChange]);
   async function command(
     name: string,
     fields: Record<string, unknown>,
@@ -276,7 +304,7 @@ export function CasePanel({
     try {
       if (!request) {
         const base = await api.getCase(id);
-        if (role === "OFFICER" && (
+        if ((
           base.revision !== detail.revision ||
           base.latestVersion !== detail.latestVersion ||
           base.status !== detail.status
@@ -341,11 +369,12 @@ export function CasePanel({
     role === "OPERATOR" && detail.status === "PENDING_PRE_SITE_RESUBMISSION";
   const reviewing = role === "OFFICER" && detail.status === "UNDER_REVIEW";
   const latest = detail.versions.at(-1)?.snapshot;
+  const unmetSavedItems = detail.working?.completion?.unmetItemIds.filter((item) => !item.startsWith("declaration.")) ?? [];
   return (
     <section id="application-workflow" tabIndex={-1} className="scroll-mt-36 space-y-6" aria-label="Application workflow">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
-          <StatusBadge status={detail.status}>{statusLabel(detail.status, role)}</StatusBadge> <span className="ml-2 text-sm text-muted-foreground">· Version {detail.latestVersion}</span>
+          <StatusBadge status={detail.status}>{statusLabel(detail.status, role)}</StatusBadge> <span className="ml-2 text-sm text-muted-foreground">{detail.status === "DRAFT" ? `Saved revision ${detail.revision}` : `· Version ${detail.latestVersion}`}</span>
         </h2>
         <Button type="button" variant="outline" disabled={busy} onClick={load}>
           Refresh case history
@@ -489,6 +518,8 @@ export function CasePanel({
           ))}
         </section>
       )}
+      {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && <SavedApplicationReview detail={detail} />}
+      {role === "OPERATOR" && ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(detail.status) && <Alert><AlertTitle>{detail.status === "APPLICATION_RECEIVED" ? "Application submitted" : "Corrections resubmitted"}</AlertTitle><AlertDescription>Your submission has been received. There is nothing more to submit now; an officer will review it. Check this application or the notification bell for updates.</AlertDescription></Alert>}
       {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && (
         <section
           className="space-y-3 border-t pt-6"
@@ -501,6 +532,7 @@ export function CasePanel({
             Save your field changes and finish uploads first. Confirm both
             declarations afresh for this submission.
           </p>
+          {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence below, then save and review again.</AlertDescription></Alert>}
           <div className="flex items-center gap-2">
             <Checkbox
               id="accuracy"
@@ -523,7 +555,7 @@ export function CasePanel({
           </div>
           <Button
             type="button"
-            disabled={busy || !!pending || !accuracy || !authority}
+            disabled={busy || !!pending || !accuracy || !authority || !!unmetSavedItems.length}
             onClick={() =>
               command(operatorRound ? "resubmit" : "submit", {
                 accuracy,
@@ -647,7 +679,7 @@ export function CasePanel({
           </form>
         </section>
       )}
-      <Snapshot detail={detail} role={role} />
+      {detail.status !== "DRAFT" && <Snapshot detail={detail} role={role} />}
       <section className="space-y-3" aria-label="Application history">
         <h3 className="font-medium">Application history</h3>
         <ol className="space-y-2">
@@ -679,9 +711,10 @@ export function CasePanel({
   );
 }
 
-export function OfficerCases() {
+export function OfficerCases({ navigationRequest = 0 }: { navigationRequest?: number } = {}) {
   const [cases, setCases] = useState<api.CaseSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -695,11 +728,18 @@ export function OfficerCases() {
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
+  const seenNavigation = useRef(navigationRequest);
+  useEffect(() => {
+    if (seenNavigation.current === navigationRequest) return;
+    seenNavigation.current = navigationRequest;
+    void Promise.resolve().then(() => { if (workflowBusy) { setError("Finish or retry the current action before returning to the queue."); return; } setSelected(null); return load(); });
+  }, [navigationRequest, load, workflowBusy]);
   if (selected)
     return (
       <div className="space-y-4">
         <Button
           variant="outline"
+          disabled={workflowBusy}
           onClick={() => {
             setSelected(null);
             void load();
@@ -707,7 +747,8 @@ export function OfficerCases() {
         >
           All cases
         </Button>
-        <CasePanel id={selected} role="OFFICER" />
+        {error && <p role="alert">{error}</p>}
+        <CasePanel id={selected} role="OFFICER" onActivityChange={setWorkflowBusy} />
       </div>
     );
   return (

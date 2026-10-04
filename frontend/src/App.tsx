@@ -1,5 +1,6 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -18,6 +19,7 @@ import {
 import * as api from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/StatusBadge";
+import { EvidenceUpload } from "@/EvidenceUpload";
 import { WorkspaceShell } from "@/WorkspaceShell";
 import {
   CasePanel,
@@ -371,246 +373,13 @@ function DayHoursFields({
   );
 }
 
-function EvidenceUpload({
-  applicationId,
-  revision,
-  request,
-  disabled,
-  onCommitted,
-  onBusyChange,
-}: {
-  applicationId: string;
-  revision: number;
-  request: NonNullable<api.Draft["documentRequests"]>[number];
-  disabled: boolean;
-  onCommitted: (result: api.UploadResult) => void;
-  onBusyChange: (busy: boolean) => void;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [key, setKey] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
-  const [progress, setProgress] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [processing, setProcessing] = useState<api.ProcessingStatus | null>(
-    null,
-  );
-  const [pollWarning, setPollWarning] = useState("");
-  const [retryingCheck, setRetryingCheck] = useState(false);
-  const processingRetryKey = useRef<string | null>(null);
-  const currentUploadId = request.currentUpload?.id;
-  useEffect(() => {
-    let stopped = false;
-    let timer: number | undefined;
-    let running = false;
-    const poll = async () => {
-      if (stopped || running) return;
-      running = true;
-      try {
-        const statuses = await api.processingStatuses(applicationId);
-        if (!stopped) {
-          setProcessing(
-            statuses.find((item) => item.uploadId === currentUploadId) ?? null,
-          );
-          setPollWarning("");
-        }
-      } catch {
-        if (!stopped)
-          setPollWarning("Status refresh paused; retrying automatically.");
-      } finally {
-        running = false;
-      }
-      if (!stopped) timer = window.setTimeout(poll, 700);
-    };
-    if (currentUploadId) void poll();
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [applicationId, currentUploadId]);
-  async function retryCheck() {
-    if (!request.currentUpload || retryingCheck) return;
-    setRetryingCheck(true);
-    try {
-      const retryKey = processingRetryKey.current ?? crypto.randomUUID();
-      processingRetryKey.current = retryKey;
-      const result = await api.retryProcessing(applicationId, request.currentUpload.id, retryKey);
-      processingRetryKey.current = null;
-      setProcessing(result.status);
-      setPollWarning("");
-    } catch (cause) {
-      setPollWarning((cause as Error).message);
-    } finally {
-      setRetryingCheck(false);
-    }
-  }
-  function choose(next: File | null) {
-    if (disabled || uploading) return;
-    setFile(next);
-    setKey(next ? crypto.randomUUID() : null);
-    setMessage(next ? `${next.name} selected. Not uploaded yet.` : "");
-  }
-  async function upload() {
-    if (!file || uploading) return;
-    const retryKey = key ?? crypto.randomUUID();
-    setKey(retryKey);
-    setUploading(true);
-    onBusyChange(true);
-    setProgress(0);
-    setMessage("Uploading…");
-    try {
-      const result = await api.uploadEvidence(
-        applicationId,
-        request.id,
-        revision,
-        retryKey,
-        file,
-        setProgress,
-      );
-      onCommitted(result);
-      setFile(null);
-      setKey(null);
-      setProgress(100);
-      const currentUpload = result.currentDraft.documentRequests?.find(
-        (item) => item.id === request.id,
-      )?.currentUpload;
-      setMessage(
-        currentUpload && currentUpload.id !== result.upload.id
-          ? `Recovered ${result.upload.filename}; the current file remains ${currentUpload.filename}. Review the current revision.`
-          : `Saved ${result.upload.filename}. Local form edits were not saved or cleared.`,
-      );
-    } catch (cause) {
-      setMessage(
-        `${(cause as Error).message} Choose Retry to safely resend this file.`,
-      );
-    } finally {
-      setUploading(false);
-      onBusyChange(false);
-    }
-  }
-  const inputId = `evidence-${request.id}`;
-  return (
-    <div className="mt-3 min-w-0 space-y-2">
-      {request.currentUpload && (
-        <p className="min-w-0 text-xs">
-          <a
-            className="block max-w-full truncate underline"
-            title={request.currentUpload.filename}
-            target="_blank"
-            rel="noreferrer"
-            href={`/api/applications/${applicationId}/evidence/uploads/${request.currentUpload.id}`}
-          >
-            Open saved {request.currentUpload.filename}
-          </a>{" "}
-          · {(request.currentUpload.byteSize / 1000).toFixed(1)} KB
-        </p>
-      )}
-      {request.currentUpload && (
-        <div
-          className="rounded-md border bg-muted/30 p-2 text-xs"
-          aria-live="polite"
-        >
-          <p className="font-medium">Simulated document check</p>
-          <p>
-            {processing?.state === "COMPLETE"
-              ? "Simulated check complete"
-              : processing?.state === "CHECKING"
-                ? "Checking…"
-                : processing?.state === "ERROR"
-                  ? "Simulated check could not complete"
-                  : "Queued"}
-          </p>
-          {processing?.state === "COMPLETE" && (
-            <p className="text-muted-foreground">
-              Completion does not establish document validity or licensing
-              compliance.
-            </p>
-          )}
-          {processing?.state === "ERROR" && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={disabled || retryingCheck}
-              onClick={retryCheck}
-            >
-              {retryingCheck ? "Retrying…" : "Retry simulated check"}
-            </Button>
-          )}
-          {pollWarning && (
-            <p className="text-muted-foreground">{pollWarning}</p>
-          )}
-        </div>
-      )}
-      {request.applicability === "APPLICABLE" && (
-        <>
-          <div
-            className="rounded-md border border-dashed p-3"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (!disabled && !uploading) {
-                choose(event.dataTransfer.files.item(0));
-              }
-            }}
-          >
-            <Label htmlFor={inputId}>
-              {request.currentUpload ? "Replace evidence" : "Upload evidence"}
-            </Label>
-            <Input
-              id={inputId}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              disabled={disabled || uploading}
-              className="min-w-0 max-w-full"
-              onChange={(event) => choose(event.target.files?.item(0) ?? null)}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              PDF, JPEG, or PNG · maximum 10,000,000 bytes. You can also drop a
-              file here.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!file || disabled || uploading}
-            onClick={upload}
-          >
-            {uploading
-              ? `Uploading ${progress ?? 0}%…`
-              : message.includes("Retry")
-                ? "Retry upload"
-                : request.currentUpload
-                  ? "Replace file"
-                  : "Upload file"}
-          </Button>
-          {progress !== null && (
-            <progress
-              className="w-full"
-              max="100"
-              value={progress}
-              aria-label="Upload progress"
-            />
-          )}
-          {message && (
-            <p
-              role="status"
-              className="break-words text-xs [overflow-wrap:anywhere]"
-            >
-              {message}
-            </p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function OperatorDrafts() {
+function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
   const [caseDetail, setCaseDetail] = useState<api.CaseDetail | null>(null);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [reviewRequest, setReviewRequest] = useState(0);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("Loading your drafts…");
   const [pendingCreateKey, setPendingCreateKey] = useState<string | null>(null);
@@ -624,6 +393,36 @@ function OperatorDrafts() {
   const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const [pendingEvidence, setPendingEvidence] = useState<Record<string, boolean>>({});
+  const [confirmExit, setConfirmExit] = useState(false);
+  const seenNavigation = useRef(navigationRequest);
+  const pendingFileCount = draft?.documentRequests?.filter(
+    (request) => request.applicability === "APPLICABLE" && pendingEvidence[request.id],
+  ).length ?? 0;
+
+  function returnToList() {
+    setDraft(null);
+    setShowWorkflow(false);
+    setCaseDetail(null);
+    setPendingEvidence({});
+    setConfirmExit(false);
+    window.setTimeout(() => document.getElementById("applications-heading")?.focus(), 0);
+  }
+  function requestHome() {
+    if (saving || uploadingEvidence || conflict || workflowBusy) {
+      setStatus("Finish or retry the current action, and resolve saves, uploads or conflicts before leaving.");
+      return;
+    }
+    if (draft && (pendingFileCount || (formRef.current && Object.keys(editsFrom(formRef.current, draft)).length))) {
+      setConfirmExit(true);
+    } else returnToList();
+  }
+  const navigateHome = useEffectEvent(requestHome);
+  useEffect(() => {
+    if (seenNavigation.current === navigationRequest) return;
+    seenNavigation.current = navigationRequest;
+    void Promise.resolve().then(() => navigateHome());
+  }, [navigationRequest]);
 
   useEffect(() => {
     api
@@ -716,12 +515,14 @@ function OperatorDrafts() {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft) return;
-    if (saving || uploadingEvidence || conflict) return;
+    await saveValues(event.currentTarget);
+  }
+  async function saveValues(form: HTMLFormElement): Promise<boolean> {
+    if (!draft || saving || uploadingEvidence || conflict || workflowBusy) return false;
     setSaving(true);
     setStatus("Saving…");
     setErrors({});
-    const fields = editsFrom(event.currentTarget, draft);
+    const fields = editsFrom(form, draft);
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
@@ -731,15 +532,16 @@ function OperatorDrafts() {
         current.map((item) => (item.id === saved.id ? saved : item)),
       );
       setStatus(
-        `Saved revision ${saved.revision}. Your draft will be available after sign in or reload.`,
+        `Saved revision ${saved.revision}. Next: upload any selected files, then choose Review and submit.`,
       );
+      return true;
     } catch (cause) {
       const failure = cause as api.ApiError;
       setErrors(failure.fieldErrors ?? {});
       if (failure.status === 400 || failure.status === 422) {
         setStatus(failure.message);
         setSaving(false);
-        return;
+        return false;
       }
       try {
         const latest = await api.getDraft(draft.id);
@@ -756,8 +558,9 @@ function OperatorDrafts() {
             current.map((item) => (item.id === latest.id ? latest : item)),
           );
           setStatus(
-            `Recovered saved revision ${latest.revision} after the response was lost.`,
+            `Recovered saved revision ${latest.revision} after the response was lost. Next: choose Review and submit.`,
           );
+          return true;
         } else {
           setConflict(latest);
           setConflictBase(draft);
@@ -775,13 +578,24 @@ function OperatorDrafts() {
     } finally {
       setSaving(false);
     }
+    return false;
+  }
+
+  async function reviewSubmission() {
+    if (!draft || saving || uploadingEvidence || conflict || workflowBusy || pendingFileCount) return;
+    if (formRef.current && Object.keys(editsFrom(formRef.current, draft)).length) {
+      if (!await saveValues(formRef.current)) return;
+    }
+    setShowWorkflow(true);
+    setReviewRequest((current) => current + 1);
+    window.setTimeout(() => document.getElementById("application-workflow")?.focus(), 0);
   }
 
   if (!draft) {
     return (
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Your applications</h2>
+          <h2 id="applications-heading" tabIndex={-1} className="text-lg font-semibold">Your applications</h2>
           <Button onClick={create} disabled={creating}>
             {creating
               ? "Creating…"
@@ -863,10 +677,18 @@ function OperatorDrafts() {
         {["Business", "Applicant", "Premises", "Operations", "Evidence"].map((section) => <a key={section} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-ring" href={`#application-${section.toLowerCase()}`}>{section}</a>)}
       </nav>
       <div className="flex min-w-0 flex-col gap-8">
+      <AlertDialog open={confirmExit} onOpenChange={setConfirmExit}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Leave unsaved changes?</AlertDialogTitle><AlertDialogDescription>Your saved application and uploaded files will remain. Unsaved field changes and files selected but not uploaded will be discarded.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction onClick={returnToList}>Discard unsaved changes</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {showWorkflow && (
         <CasePanel
           id={draft.id}
           role="OPERATOR"
+          refreshRequest={reviewRequest}
+          onActivityChange={setWorkflowBusy}
           beforeCommand={(latest) => {
             if (latest.revision !== draft.revision)
               throw new Error(
@@ -910,6 +732,7 @@ function OperatorDrafts() {
       )}
       <form
         ref={formRef}
+        id="application-editor"
         key={editorGeneration}
         className="space-y-6"
         onSubmit={save}
@@ -929,15 +752,20 @@ function OperatorDrafts() {
             type="button"
             variant="outline"
             disabled={saving || !!conflict}
-            onClick={() => setDraft(null)}
+            onClick={requestHome}
           >
-            All drafts
+            All applications
           </Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Changes are saved when you choose Save draft.</p>
-          <Button type="submit" disabled={saving || uploadingEvidence || !!conflict}>{saving ? "Saving…" : "Save changes"}</Button>
+          <p className="text-sm text-muted-foreground">1. Add details and upload files. 2. Save draft. 3. Review and submit.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy}>{saving ? "Saving…" : "Save changes"}</Button>
+            <Button type="button" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>{draft.status === "DRAFT" || draft.status === "PENDING_PRE_SITE_RESUBMISSION" ? "Review and submit" : "View submission and history"}</Button>
+          </div>
         </div>
+        <p role="status" className="text-sm text-muted-foreground">{status}</p>
+        {!!pendingFileCount && <Alert><AlertTitle>Upload your selected files</AlertTitle><AlertDescription>{pendingFileCount} selected file(s) have not been uploaded. Use Upload file or Replace file in Evidence before reviewing for submission. Saving draft keeps your selection while this page stays open.</AlertDescription></Alert>}
         {conflict && (
           <Alert role="alert">
             <AlertTitle>Saved draft changed</AlertTitle>
@@ -1362,6 +1190,7 @@ function OperatorDrafts() {
             ))}
           </fieldset>
         </fieldset>
+      </form>
         <section id="application-evidence" tabIndex={-1} aria-labelledby="requirements-heading" className="flex scroll-mt-36 flex-col gap-4 border-t pt-6">
           <div>
             <h3 id="requirements-heading" className="font-medium">
@@ -1400,10 +1229,12 @@ function OperatorDrafts() {
                   disabled={
                     saving ||
                     uploadingEvidence ||
+                    workflowBusy ||
                     !!conflict ||
                     !canEdit(request.id)
                   }
                   onBusyChange={setUploadingEvidence}
+                  onPendingChange={(pending) => setPendingEvidence((current) => ({ ...current, [request.id]: pending }))}
                   onCommitted={(result) => {
                     const current = result.currentDraft;
                     const localEdits = formRef.current
@@ -1433,17 +1264,7 @@ function OperatorDrafts() {
             ))}
           </ul>
         </section>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={saving || uploadingEvidence || !!conflict}
-          onClick={() => {
-            setShowWorkflow(true);
-            window.setTimeout(() => document.getElementById("application-workflow")?.focus(), 0);
-          }}
-        >
-          Submission and history
-        </Button>
+        <Button type="button" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>Continue to review</Button>
         <section aria-labelledby="declarations-heading" className="space-y-2">
           <h3 id="declarations-heading" className="font-medium">
             Declarations
@@ -1455,16 +1276,13 @@ function OperatorDrafts() {
             Authority: You will confirm these when submitting.
           </p>
         </section>
-        <p role="status" className="text-sm text-muted-foreground">
-          {status}
-        </p>
         <Button
+          form="application-editor"
           type="submit"
-          disabled={saving || uploadingEvidence || !!conflict}
+          disabled={saving || uploadingEvidence || !!conflict || workflowBusy}
         >
           {saving ? "Saving…" : "Save draft"}
         </Button>
-      </form>
       </div>
     </div>
   );
@@ -1474,6 +1292,7 @@ export default function App() {
   const [user, setUser] = useState<api.User | null>(null);
   const [workspace, setWorkspace] = useState<api.Workspace | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [navigationRequest, setNavigationRequest] = useState(0);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1546,13 +1365,13 @@ export default function App() {
 
   if (user) {
     return (
-      <WorkspaceShell user={user} heading={workspace?.heading ?? "Workspace"} error={error} signingOut={submitting} onSignOut={signOut}>
+      <WorkspaceShell user={user} heading={workspace?.heading ?? "Workspace"} error={error} signingOut={submitting} onSignOut={signOut} onHome={() => setNavigationRequest((current) => current + 1)}>
         {workspaceLoading ? (
           <p role="status" className="text-muted-foreground">Loading workspace…</p>
         ) : workspace ? (
           <div className="flex flex-col gap-8">
             <p className="text-muted-foreground">{workspace.message}</p>
-            {user.role === "OPERATOR" ? <OperatorDrafts /> : <OfficerCases />}
+            {user.role === "OPERATOR" ? <OperatorDrafts navigationRequest={navigationRequest} /> : <OfficerCases navigationRequest={navigationRequest} />}
           </div>
         ) : <Button variant="outline" onClick={() => loadWorkspace(user)}>Retry workspace</Button>}
       </WorkspaceShell>

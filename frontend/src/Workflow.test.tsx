@@ -389,7 +389,7 @@ test("all statuses stay in the officer queue and filters preserve cases", async 
       updatedAt: "2026-10-04T00:00:00Z",
     })),
   );
-  render(<OfficerCases />);
+  const { rerender } = render(<OfficerCases navigationRequest={0} />);
   await screen.findByText("6 applications");
   await user.selectOptions(
     screen.getByLabelText("Application status"),
@@ -402,6 +402,11 @@ test("all statuses stay in the officer queue and filters preserve cases", async 
   await screen.findByRole("button", { name: "All cases" });
   await user.click(screen.getByRole("button", { name: "All cases" }));
   await screen.findByText("6 applications");
+  await user.click(screen.getByRole("button", { name: /Cafe 0/ }));
+  await screen.findByRole("button", { name: "All cases" });
+  rerender(<OfficerCases navigationRequest={1} />);
+  await screen.findByText("6 applications");
+  expect(screen.queryByRole("button", { name: "All cases" })).not.toBeInTheDocument();
   expect(statusLabel("APPLICATION_RECEIVED", "OPERATOR")).toBe("Submitted");
 });
 test("notifications persist and mark read through the API", async () => {
@@ -495,4 +500,28 @@ test("mark all as read targets only unread notifications", async () => {
   await user.click(await screen.findByRole("button", { name: "Mark all as read" }));
   await screen.findByText("Notifications · 0 unread");
   expect(api.readNotification).toHaveBeenCalledExactlyOnceWith("unread");
+});
+
+
+test("operator cannot submit a saved revision that has not been reviewed", async () => {
+  const user = userEvent.setup();
+  render(<CasePanel id="case" role="OPERATOR" />);
+  await screen.findByRole("button", { name: "Submit application" });
+  await user.click(screen.getByRole("checkbox", { name: "I confirm this application is accurate." }));
+  await user.click(screen.getByRole("checkbox", { name: "I am authorised to apply for this business." }));
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, revision: 3 });
+  await user.click(screen.getByRole("button", { name: "Submit application" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Refresh and review the current submission");
+  expect(api.caseCommand).not.toHaveBeenCalled();
+});
+
+test("saved missing requirements prevent submission before fresh declarations", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, working: { ...draft, completion: { completed: 1, required: 2, percentage: 50, unmetItemIds: ["legalName", "declaration.accuracy", "declaration.authority"] } } });
+  render(<CasePanel id="case" role="OPERATOR" />);
+  await screen.findByText("Complete the remaining requirements");
+  await user.click(screen.getByRole("checkbox", { name: "I confirm this application is accurate." }));
+  await user.click(screen.getByRole("checkbox", { name: "I am authorised to apply for this business." }));
+  expect(screen.getByRole("button", { name: "Submit application" })).toBeDisabled();
+  expect(api.caseCommand).not.toHaveBeenCalled();
 });

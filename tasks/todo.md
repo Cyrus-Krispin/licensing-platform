@@ -8,3 +8,11 @@
 - [x] Review, commit, push current feature branch, create and attach draft PR #27
 
 - [x] Follow-up: bell dropdown with read/clear controls, Create application wording, recipient-scoped clearing, regression checks, and PR update
+
+## Save, evidence and home-navigation follow-up
+
+- [x] Regression tests for selected/retained files after saving, submission guidance, and application-list navigation
+- [x] Keep evidence selection and upload retry state across form resets; clarify selected versus saved files
+- [x] Clear review/submission next action and saved-answer review
+- [x] Applications/Review queue return to lists, protecting unsaved operator edits and file selections
+- [x] Checks, isolated browser verification, rebuild and update PR #27

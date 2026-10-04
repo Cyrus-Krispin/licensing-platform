@@ -22,6 +22,10 @@ Keep shadcn Base UI (`base-nova`), Geist, Lucide, and semantic theme tokens. Add
 
 ## Boundaries and risks
 
-No workflow expansion, dependency unlock, completeness waiver, autosave, issuance, inspection, or backend/API redesign. Historical-view safeguards, unsaved exit confirmation, URL routing, and final-decision confirmation identified in the research audit remain separate follow-up work; this PR focuses on the requested visual/navigation overhaul. Generated components increase coverage surface and must not reduce existing gates. The core workflow has already merged through PR #26; the final PR diff against main contains this UI update.
+No workflow expansion, dependency unlock, completeness waiver, autosave, issuance, inspection, or backend/API redesign. Historical-view safeguards, sign-out/reload protection, URL routing, and final-decision confirmation identified in the research audit remain separate follow-up work; this PR focuses on the requested visual/navigation overhaul. Generated components increase coverage surface and must not reduce existing gates. The core workflow has already merged through PR #26; the final PR diff against main contains this UI update.
 
 The user subsequently requested Create application naming and a bell dropdown with mark-read and Clear all controls. The small recipient-scoped notification deletion endpoint is authorised within this slice; no application/history deletion is exposed. Latest verification uses mocked browser notification data to preserve the locally reset database.
+
+## Current priority slice
+
+Address the user's three reported obstacles before broader audit work: unclear save-to-submission transition, evidence selection disappearing when the form resets after saving, and navigation failing to return to the list. Keep evidence outside the resettable field form, distinguish selected/unuploaded files from saved uploads, expose Review and submit near Save, and show saved answers before fresh declarations. Route workspace navigation to the role's list and protect unsaved operator edits/selections with an explicit discard dialog. Preserve submission concurrency guards, immutable uploads and fixed targeted corrections. Use regression and mocked browser tests without adding records to the user's database.

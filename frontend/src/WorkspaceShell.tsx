@@ -21,6 +21,7 @@ export function WorkspaceShell({
   error,
   signingOut,
   onSignOut,
+  onHome,
   children,
 }: {
   user: User;
@@ -28,6 +29,7 @@ export function WorkspaceShell({
   error: string;
   signingOut: boolean;
   onSignOut: () => void;
+  onHome: () => void;
   children: ReactNode;
 }) {
   return (
@@ -95,7 +97,11 @@ export function WorkspaceShell({
         )}
         <nav aria-label="Workspace navigation" className="mb-8">
           <a
-            href="#workspace-content"
+            href="#applications"
+            onClick={(event) => {
+              event.preventDefault();
+              onHome();
+            }}
             className="inline-flex items-center gap-2 border-b-2 py-2 text-sm font-medium"
             aria-current="page"
           >

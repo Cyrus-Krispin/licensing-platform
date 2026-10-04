@@ -118,7 +118,7 @@ The approved follow-up replaces the enclosing signed-in Card with a black page a
 
 Application fields, opening-hour inputs, evidence, and submitted summary rows stack vertically on desktop and mobile. Section anchors provide local navigation; save controls and saved completion appear near the top. Required field labels show an amber `*` and one shared explanation, while screen readers retain the requirement text. Status, evidence applicability, correction state, and new notifications use semantic coloured shadcn Badges. Longer explanations use official Textarea controls. Opening submission moves focus to the workflow; officer feedback links now resolve to retained summary rows.
 
-The baseline findings remain an audit trail, not a claim that this PR resolves every issue. Historical-version action safeguards, final-decision confirmation, unsaved exit confirmation for All drafts, URL routing, search/pagination, technical history copy, and dependent-target guidance remain follow-up work. Server permissions, fixed-round boundaries and completeness rules remain unchanged. Clearing notifications adds the recipient-scoped API described below. Official shadcn Base UI components were added through its CLI; no framework or component-library migration was introduced.
+The baseline findings remain an audit trail, not a claim that this PR resolves every issue. Historical-version action safeguards, final-decision confirmation, sign-out/reload protection, URL routing, search/pagination, technical history copy, and dependent-target guidance remain follow-up work. Server permissions, fixed-round boundaries and completeness rules remain unchanged. Clearing notifications adds the recipient-scoped API described below. Official shadcn Base UI components were added through its CLI; no framework or component-library migration was introduced.
 
 ### First UI implementation validation
 
@@ -141,3 +141,18 @@ Latest validation: 57 frontend tests, lint/typecheck/coverage/build passed; back
 Verified desktop dropdown (isolated test notifications):
 
 ![Notification dropdown with unread label, read and clear controls, and Create application action](ui-review/notification-dropdown.png)
+
+
+### Save, evidence and application-list navigation follow-up
+
+**Applications** now returns to the operator list, and **Review queue** returns to the officer list. The operator's All applications button uses the same navigation. Leaving with unsaved field edits or selected files opens an official shadcn AlertDialog with Keep editing / Discard unsaved changes. Saves, uploads, unresolved conflicts and pending workflow commands block leaving until resolved; successful return focuses the list heading. Sign-out and browser reload protection remain separate follow-ups.
+
+Evidence controls sit outside the resettable field form. Saving no longer clears selected files or upload retry state. Uploaded documents keep a visible **Saved file** label and filename link after saving; the empty chooser is explained as a replacement control. A selected file remains local until Upload file / Replace file succeeds. Review is disabled while applicable files remain selected but unuploaded.
+
+**Review and submit** sits beside Save, saves any edited fields before opening, and focuses a saved-answer/evidence summary. Missing saved requirements explain why submission is unavailable; both declarations must still be confirmed afresh. A receipt explains that an officer acts next. Operators now receive the same pre-command revision/version/status check as officers, preventing submission of a different revision from the one reviewed. Server completeness and fixed correction-round rules remain authoritative and unchanged.
+
+Latest verification: 61 frontend tests and lint/typecheck/coverage/build passed; backend verification passed with 56 tests and nine skips. Two isolated Chromium tests passed, covering notification controls and selected-file retention across save, upload/retained-file visibility, saved-answer review, and Applications navigation with dirty-state protection. These tests intercept API calls and create no local database records. Compose services are healthy on 8081; Markdown links and whitespace checks passed. Full live workflow tests were last run for the first UI implementation, documented above.
+
+Verified saved evidence (isolated test application):
+
+![Saved filename remains visible after saving the draft, with an explained replacement control](ui-review/saved-evidence.png)

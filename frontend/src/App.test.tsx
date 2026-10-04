@@ -99,8 +99,9 @@ test("opening submission focuses the workflow above the editor", async () => {
   vi.mocked(api.getCase).mockResolvedValue({ id: draft.id, revision: draft.revision, status: "DRAFT", latestVersion: 0, round: 0, working: draft, versions: [], issues: [], events: [] });
   render(<App />);
   await userEvent.click(await screen.findByTitle("Cafe"));
-  await userEvent.click(screen.getByRole("button", { name: "Submission and history" }));
+  await userEvent.click(screen.getByRole("button", { name: "Review and submit" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Application workflow" })).toHaveFocus());
+  expect(screen.getByRole("region", { name: "Review saved application" })).toHaveTextContent("Cafe");
 });
 
 test("notification dropdown preserves unsaved application edits", async () => {
@@ -911,9 +912,9 @@ describe("authentication workspace", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(legalName).toBeDisabled();
-    expect(screen.getByRole("button", { name: "All drafts" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All applications" })).toBeDisabled();
     await userEvent.type(legalName, " later edit");
-    await userEvent.click(screen.getByRole("button", { name: "All drafts" }));
+    await userEvent.click(screen.getByRole("button", { name: "All applications" }));
     expect(legalName).toHaveValue("Changed locally");
 
     rejectSave?.(new Error("Connection ended before a response"));
@@ -993,7 +994,7 @@ describe("authentication workspace", () => {
     expect(legalName).toHaveValue("My cafe");
     expect(legalName).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "All drafts" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All applications" })).toBeDisabled();
     expect(api.saveDraft).toHaveBeenCalledTimes(1);
     expect(api.saveDraft).toHaveBeenNthCalledWith(1, "two-tab-draft", 0, {
       legalName: "My cafe",
@@ -1248,4 +1249,49 @@ test("clearing notifications updates the bell without leaving the application", 
   expect(await screen.findByRole("button", { name: "Notifications, 0 unread" })).toBeVisible();
   expect(screen.queryByText("Corrections requested")).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Notifications" })).not.toBeInTheDocument();
+});
+
+
+test("Applications returns to the list and asks before discarding local edits", async () => {
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([premisesDraft()]);
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  await userEvent.type(screen.getByLabelText("Trading name"), "Unsaved name");
+  await userEvent.click(screen.getByRole("link", { name: "Applications" }));
+  expect(await screen.findByRole("alertdialog")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  expect(screen.getByLabelText("Trading name")).toHaveValue("Unsaved name");
+  await userEvent.click(screen.getByRole("link", { name: "Applications" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Discard unsaved changes" }));
+  expect(await screen.findByRole("heading", { name: "Your applications" })).toBeVisible();
+});
+
+test("selected evidence survives saving fields and uploads using the saved revision", async () => {
+  const draft = premisesDraft();
+  const saved = { ...draft, revision: 2 };
+  const upload = { id: "file", requestId: "lease-request", filename: "lease.png", contentType: "image/png", byteSize: 3, sha256: "hash", createdAt: "2026-10-04T00:00:00Z", ready: true };
+  const uploaded = { ...saved, revision: 3, documentRequests: [{ ...saved.documentRequests![0], currentUpload: upload }, saved.documentRequests![1]] };
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.saveDraft).mockResolvedValue(saved);
+  vi.mocked(api.uploadEvidence).mockResolvedValue({ upload, revision: 3, currentDraft: uploaded });
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  const file = new File(["png"], "lease.png", { type: "image/png" });
+  await userEvent.upload(screen.getByLabelText("Upload evidence"), file);
+  await userEvent.click(screen.getByRole("link", { name: "Applications" }));
+  expect(await screen.findByRole("alertdialog")).toHaveTextContent("files selected but not uploaded");
+  await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  expect(screen.getByRole("button", { name: "Review and submit" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await screen.findByText(/Saved revision 2/);
+  expect(screen.getByText(/lease.png selected. Not uploaded yet/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Upload file" }));
+  await screen.findByRole("link", { name: "Open saved lease.png" });
+  expect(api.uploadEvidence).toHaveBeenCalledWith(draft.id, "lease-request", 2, expect.any(String), file, expect.any(Function));
+  vi.mocked(api.saveDraft).mockResolvedValue({ ...uploaded, revision: 4 });
+  await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await screen.findByText(/Saved revision 4/);
+  expect(screen.getByRole("link", { name: "Open saved lease.png" })).toBeVisible();
 });
