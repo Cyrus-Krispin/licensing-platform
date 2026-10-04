@@ -41,7 +41,7 @@ test("operator and officer complete targeted corrections, retained versions and 
   const name = `Workflow Cafe ${Date.now()}`;
   await login(operator, "operator");
   await operator.getByRole("button", { name: "Create application" }).click();
-  await operator.getByLabel(/Legal name/).fill(name);
+  await operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true }).fill(name);
   await operator.getByLabel(/Registration number/).fill("202612345A");
   await operator.getByLabel(/Business structure/).selectOption("COMPANY");
   await operator
@@ -50,7 +50,7 @@ test("operator and officer complete targeted corrections, retained versions and 
   await operator
     .getByRole("combobox", { name: "Role (required to submit)", exact: true })
     .selectOption("OWNER");
-  await operator.getByLabel(/Contact email/).fill("owner@example.test");
+  await operator.getByRole("textbox", { name: "Contact email (required to submit)", exact: true }).fill("owner@example.test");
   await operator.getByLabel(/Phone/).fill("12345678");
   await operator.getByLabel(/^Address/).fill("10 Market Street");
   await operator.getByLabel(/Does the premises/).selectOption("false");
@@ -105,32 +105,39 @@ test("operator and officer complete targeted corrections, retained versions and 
   await expect(
     operator.getByRole("heading", { name: "Submitted · Version 1" }),
   ).toBeVisible();
-  await expect(operator.getByLabel(/Legal name/)).toBeDisabled();
+  await expect(operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true })).toBeDisabled();
   await login(officer, "officer");
   await officer.getByRole("button", { name: new RegExp(name) }).click();
   await officer.getByRole("button", { name: "Start review" }).click();
   await expect(
     officer.getByRole("heading", { name: "Under Review · Version 1" }),
   ).toBeVisible();
+  await officer.getByRole("button", { name: "Review Legal name", exact: true }).click();
   await officer
-    .getByLabel("Correction explanation", { exact: true })
+    .getByLabel("Correction explanation for Legal name", { exact: true })
     .fill("Correct registered legal name");
+  for (const width of [320, 768, 1024, 1440]) {
+    await officer.setViewportSize({ width, height: 900 });
+    await expect(officer.getByLabel("Correction explanation for Legal name")).toBeVisible();
+    expect(await officer.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await officer.locator("#submitted-legalName").screenshot({ path: testInfo.outputPath(`field-review-${width}.png`) });
+  }
   await officer.getByRole("button", { name: "Save review request" }).click();
   await expect(
     officer.getByText("Correct registered legal name", { exact: true }),
   ).toBeVisible();
-  await officer.getByLabel("Correction kind").selectOption("DOCUMENT");
-  await officer.getByLabel("Requested field or document").selectOption({label:"BUSINESS REGISTRATION"});
-  await officer.getByLabel("Correction explanation", {exact:true}).fill("Replace registration image");
+  await officer.getByRole("button", {name:"Review BUSINESS REGISTRATION", exact:true}).click();
+  await officer.getByLabel("Correction explanation for BUSINESS REGISTRATION", {exact:true}).fill("Replace registration image");
   await officer.getByRole("button", {name:"Save review request"}).click();
   await expect(officer.getByText("Replace registration image", {exact:true})).toBeVisible();
-  await officer.getByLabel("Correction kind").selectOption("ADDITIONAL");
+  await officer.getByText("Request additional evidence", {exact:true}).click();
   await officer.getByLabel(/Additional evidence title/).fill("Signed consent");
   await officer.getByLabel("Correction explanation", {exact:true}).fill("Supply signed consent");
   await officer.getByRole("button", {name:"Save review request"}).click();
   await expect(officer.getByText("Supply signed consent", {exact:true})).toBeVisible();
+  await officer.getByLabel("Review result", {exact:true}).selectOption("CORRECTIONS");
   await officer
-    .getByRole("button", { name: "Publish fixed correction round" })
+    .getByRole("button", { name: "Submit review result" })
     .click();
   await expect(
     officer.getByRole("heading", {
@@ -142,9 +149,9 @@ test("operator and officer complete targeted corrections, retained versions and 
   ).toHaveCount(0);
   await operator.reload();
   await operator.getByRole("button", { name: new RegExp(name) }).click();
-  await expect(operator.getByLabel(/Legal name/)).toBeEnabled();
-  await expect(operator.getByLabel(/Contact email/)).toBeDisabled();
-  await operator.getByLabel(/Legal name/).fill(`${name} Ltd`);
+  await expect(operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true })).toBeEnabled();
+  await expect(operator.getByRole("textbox", { name: "Contact email (required to submit)", exact: true })).toBeDisabled();
+  await operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true }).fill(`${name} Ltd`);
   await operator
     .getByRole("button", { name: "Save draft", exact: true })
     .click();
@@ -161,7 +168,9 @@ test("operator and officer complete targeted corrections, retained versions and 
   await additional.locator('input[type="file"]').setInputFiles({name:"consent.png",mimeType:"image/png",buffer:png});
   await additional.getByRole("button", {name:"Upload file",exact:true}).click();
   await expect(additional.getByRole("link", {name:"Open saved consent.png"})).toBeVisible();
-  const feedback = operator.getByRole("region", {name:"Officer feedback"});
+  const feedback = operator.getByRole("region", {name:"Review saved application"});
+  await expect(feedback.getByLabel("Officer feedback for Legal name")).toContainText("Correct registered legal name");
+  await feedback.getByLabel("Officer feedback for Legal name").screenshot({ path: testInfo.outputPath("operator-field-feedback.png") });
   for (let index=0;index<3;index++) {
     await feedback.getByLabel("Response to this request").nth(index).fill("Requested correction completed");
     await feedback.getByRole("button", {name:"Save response"}).nth(index).click();
@@ -181,10 +190,11 @@ test("operator and officer complete targeted corrections, retained versions and 
   }
   await expect(officer.getByRole("link", {name:"replacement.png"})).toBeVisible();
   await expect(officer.getByRole("link", {name:"consent.png"})).toBeVisible();
+  await officer.getByLabel("Review result", {exact:true}).selectOption("APPROVED");
   await officer
     .getByLabel("Decision explanation (required)")
     .fill("Complete documentary review");
-  await officer.getByRole("button", { name: "Record final decision" }).click();
+  await officer.getByRole("button", { name: "Submit review result" }).click();
   await expect(
     officer.getByRole("heading", { name: "Approved · Version 2" }),
   ).toBeVisible();
