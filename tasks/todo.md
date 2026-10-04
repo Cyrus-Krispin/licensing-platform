@@ -5,4 +5,4 @@
 - [x] Vertical fields, section navigation, visible actions, submission focus
 - [x] Multiline review controls and organised snapshots/notifications
 - [x] Frontend, backend, Markdown, Compose and browser verification
-- [ ] Review, commit, push current feature branch, create and attach draft PR
+- [x] Review, commit, push current feature branch, create and attach draft PR #27
