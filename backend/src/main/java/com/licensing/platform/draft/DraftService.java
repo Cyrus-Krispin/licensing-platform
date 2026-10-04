@@ -3,6 +3,8 @@ package com.licensing.platform.draft;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +27,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -105,7 +108,8 @@ public class DraftService {
                    r.id as request_id, r.request_type, r.applicability, r.reason,
                    u.id as upload_id, u.original_filename as upload_filename,
                    u.content_type as upload_content_type, u.byte_size as upload_byte_size,
-                   u.sha256 as upload_sha256, u.created_at as upload_created_at
+                   u.sha256 as upload_sha256, u.created_at as upload_created_at,
+                   u.storage_key as upload_storage_key
               from application_draft d
               join document_request r on r.application_id=d.id
               left join evidence_upload u on u.id=r.current_upload_id
@@ -114,11 +118,14 @@ public class DraftService {
     private final JdbcTemplate database;
     private final ObjectMapper objectMapper;
     private final boolean postgres;
+    private final Path evidenceObjects;
 
-    DraftService(JdbcTemplate database, ObjectMapper objectMapper, DataSource dataSource)
+    DraftService(JdbcTemplate database, ObjectMapper objectMapper, DataSource dataSource,
+            @Value("${licensing.file-storage-path:./data/private-files}") String storagePath)
             throws SQLException {
         this.database = database;
         this.objectMapper = objectMapper;
+        this.evidenceObjects = Path.of(storagePath).toAbsolutePath().normalize().resolve("objects");
         try (var connection = dataSource.getConnection()) {
             postgres = "PostgreSQL".equals(connection.getMetaData().getDatabaseProductName());
         }
@@ -728,7 +735,8 @@ public class DraftService {
                                                 resultSet.getString("upload_content_type"),
                                                 resultSet.getLong("upload_byte_size"),
                                                 resultSet.getString("upload_sha256"),
-                                                resultSet.getTimestamp("upload_created_at").toInstant())));
+                                                resultSet.getTimestamp("upload_created_at").toInstant(),
+                                                Files.isRegularFile(evidenceObjects.resolve(resultSet.getString("upload_storage_key"))))));
                     }
                     return rows.values().stream().map(this::completeDraft).toList();
                 },
@@ -809,7 +817,8 @@ public class DraftService {
                 .filter(day -> !d.operatingHours().containsKey(day))
                 .forEach(day -> unmet.add("operatingHours." + day));
         rows.requests().stream()
-                .filter(request -> request.applicability().equals("APPLICABLE") && request.currentUpload() == null)
+                .filter(request -> request.applicability().equals("APPLICABLE")
+                                                && (request.currentUpload() == null || !request.currentUpload().ready()))
                 .forEach(request -> unmet.add("documentRequest." + request.id()));
         unmet.add("declaration.accuracy");
         unmet.add("declaration.authority");
@@ -863,7 +872,7 @@ public class DraftService {
     }
 
     public record DocumentRequest(UUID id, String type, String applicability, String reason, CurrentUpload currentUpload) {}
-    public record CurrentUpload(UUID id, String filename, String contentType, long byteSize, String sha256, Instant createdAt) {}
+    public record CurrentUpload(UUID id, String filename, String contentType, long byteSize, String sha256, Instant createdAt, boolean ready) {}
     public record DayHours(boolean closed, String opens, String closes, Boolean closesNextDay) {}
     public record Completion(int completed, int required, int percentage, List<String> unmetItemIds) {}
 
