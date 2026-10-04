@@ -456,3 +456,22 @@ test("read errors recover and stale actions require deliberate refresh", async (
     expect(screen.queryByText("Stale")).not.toBeInTheDocument(),
   );
 });
+
+test("a stale officer cannot approve a newer unseen submission without refreshing", async () => {
+  const user = userEvent.setup();
+  const displayed: api.CaseDetail = {...base, status:"UNDER_REVIEW", latestVersion:1, versions:[version]};
+  const newer: api.CaseDetail = {...displayed, revision:8, latestVersion:2, versions:[version,{...version, number:2, snapshot:{...draft, legalName:"New submission"}}]};
+  vi.mocked(api.getCase).mockResolvedValueOnce(displayed).mockResolvedValue(newer);
+  vi.mocked(api.caseCommand).mockResolvedValue({...newer,status:"APPROVED"});
+  render(<CasePanel id="case" role="OFFICER"/>);
+  await user.type(await screen.findByLabelText("Decision explanation (required)"),"Document review completed");
+  await user.click(screen.getByRole("button",{name:"Record final decision"}));
+  await screen.findByText("The saved case changed. Refresh and review the current submission before acting.");
+  expect(api.caseCommand).not.toHaveBeenCalled();
+  expect(screen.getByText("Under Review · Version 1")).toBeVisible();
+  expect(screen.queryByRole("button",{name:"Retry action"})).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button",{name:"Refresh case history"}));
+  await screen.findByText("Under Review · Version 2");
+  await user.click(screen.getByRole("button",{name:"Record final decision"}));
+  await waitFor(()=>expect(api.caseCommand).toHaveBeenCalledWith(newer,"decision",{outcome:"APPROVED",explanation:"Document review completed"},expect.any(String)));
+});

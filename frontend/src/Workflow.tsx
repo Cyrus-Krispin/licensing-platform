@@ -273,6 +273,13 @@ export function CasePanel({
     try {
       if (!request) {
         const base = await api.getCase(id);
+        if (role === "OFFICER" && (
+          base.revision !== detail.revision ||
+          base.latestVersion !== detail.latestVersion ||
+          base.status !== detail.status
+        )) {
+          throw new api.ApiError("The saved case changed. Refresh and review the current submission before acting.", 409);
+        }
         beforeCommand?.(base);
         request = { command: name, fields, key: crypto.randomUUID(), base };
       }
