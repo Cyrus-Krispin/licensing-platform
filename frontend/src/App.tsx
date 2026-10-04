@@ -117,8 +117,7 @@ function operationValues(data: FormData): PatchFields {
                 closed: false,
                 opens: String(data.get(`${day}.opens`) ?? ""),
                 closes: String(data.get(`${day}.closes`) ?? ""),
-                closesNextDay:
-                  data.get(`${day}.closesNextDay`) === "true",
+                closesNextDay: data.get(`${day}.closesNextDay`) === "true",
               };
         return [[day, hours]];
       }),
@@ -126,7 +125,11 @@ function operationValues(data: FormData): PatchFields {
   };
 }
 
-function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFields): api.Draft {
+function mergeConflictEdits(
+  base: api.Draft,
+  latest: api.Draft,
+  edits: PatchFields,
+): api.Draft {
   const merged = { ...latest, ...edits } as api.Draft;
   (["preparationActivities", "serviceModes"] as const).forEach((field) => {
     if (!edits[field]) return;
@@ -145,46 +148,48 @@ function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFiel
     const local = edits.operatingHours as Record<string, DayHours>;
     const baseHours = base.operatingHours ?? {};
     const hours = { ...(latest.operatingHours ?? {}) };
-    new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach((day) => {
-      const baseDay = baseHours[day];
-      const localDay = local[day];
-      const latestDay = hours[day];
-      const original = canonicalValue(baseHours[day]) as Record<
-        string,
-        unknown
-      > | null;
-      const changed = canonicalValue(local[day]) as Record<
-        string,
-        unknown
-      > | null;
-      if (canonical(original) === canonical(changed)) return;
-      const remoteStateChanged = dayState(latestDay) !== dayState(baseDay);
-      const localStateChanged = dayState(localDay) !== dayState(baseDay);
-      if (remoteStateChanged || localStateChanged) {
-        if (localDay) hours[day] = localDay;
-        else delete hours[day];
-        return;
-      }
-      if (!changed) {
-        delete hours[day];
-        return;
-      }
-      const current = {
-        ...((canonicalValue(hours[day]) as Record<string, unknown> | null) ??
-          {}),
-      };
-      const keys = new Set([
-        ...Object.keys(original ?? {}),
-        ...Object.keys(changed),
-      ]);
-      keys.forEach((key) => {
-        if (canonical(original?.[key]) !== canonical(changed[key])) {
-          if (changed[key] === undefined) delete current[key];
-          else current[key] = changed[key];
+    new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach(
+      (day) => {
+        const baseDay = baseHours[day];
+        const localDay = local[day];
+        const latestDay = hours[day];
+        const original = canonicalValue(baseHours[day]) as Record<
+          string,
+          unknown
+        > | null;
+        const changed = canonicalValue(local[day]) as Record<
+          string,
+          unknown
+        > | null;
+        if (canonical(original) === canonical(changed)) return;
+        const remoteStateChanged = dayState(latestDay) !== dayState(baseDay);
+        const localStateChanged = dayState(localDay) !== dayState(baseDay);
+        if (remoteStateChanged || localStateChanged) {
+          if (localDay) hours[day] = localDay;
+          else delete hours[day];
+          return;
         }
-      });
-      hours[day] = current as DayHours;
-    });
+        if (!changed) {
+          delete hours[day];
+          return;
+        }
+        const current = {
+          ...((canonicalValue(hours[day]) as Record<string, unknown> | null) ??
+            {}),
+        };
+        const keys = new Set([
+          ...Object.keys(original ?? {}),
+          ...Object.keys(changed),
+        ]);
+        keys.forEach((key) => {
+          if (canonical(original?.[key]) !== canonical(changed[key])) {
+            if (changed[key] === undefined) delete current[key];
+            else current[key] = changed[key];
+          }
+        });
+        hours[day] = current as DayHours;
+      },
+    );
     merged.operatingHours = hours;
   }
   return merged;
@@ -241,7 +246,9 @@ function unmetLabel(draft: api.Draft, id: string) {
   }
   if (id.startsWith("documentRequest.")) {
     const requestId = id.slice("documentRequest.".length);
-    const request = draft.documentRequests?.find((item) => item.id === requestId);
+    const request = draft.documentRequests?.find(
+      (item) => item.id === requestId,
+    );
     return request
       ? `${documentRequestLabel(request.type)} file`
       : "Required evidence file";
@@ -356,6 +363,152 @@ function DayHoursFields({
   );
 }
 
+function EvidenceUpload({
+  applicationId,
+  revision,
+  request,
+  disabled,
+  onCommitted,
+  onBusyChange,
+}: {
+  applicationId: string;
+  revision: number;
+  request: NonNullable<api.Draft["documentRequests"]>[number];
+  disabled: boolean;
+  onCommitted: (result: api.UploadResult) => void;
+  onBusyChange: (busy: boolean) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [key, setKey] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [progress, setProgress] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  function choose(next: File | null) {
+    if (disabled || uploading) return;
+    setFile(next);
+    setKey(next ? crypto.randomUUID() : null);
+    setMessage(next ? `${next.name} selected. Not uploaded yet.` : "");
+  }
+  async function upload() {
+    if (!file || uploading) return;
+    const retryKey = key ?? crypto.randomUUID();
+    setKey(retryKey);
+    setUploading(true);
+    onBusyChange(true);
+    setProgress(0);
+    setMessage("Uploading…");
+    try {
+      const result = await api.uploadEvidence(
+        applicationId,
+        request.id,
+        revision,
+        retryKey,
+        file,
+        setProgress,
+      );
+      onCommitted(result);
+      setFile(null);
+      setKey(null);
+      setProgress(100);
+      const currentUpload = result.currentDraft.documentRequests?.find(
+        (item) => item.id === request.id,
+      )?.currentUpload;
+      setMessage(
+        currentUpload && currentUpload.id !== result.upload.id
+          ? `Recovered ${result.upload.filename}; the current file remains ${currentUpload.filename}. Review the current revision.`
+          : `Saved ${result.upload.filename}. Local form edits were not saved or cleared.`,
+      );
+    } catch (cause) {
+      setMessage(
+        `${(cause as Error).message} Choose Retry to safely resend this file.`,
+      );
+    } finally {
+      setUploading(false);
+      onBusyChange(false);
+    }
+  }
+  const inputId = `evidence-${request.id}`;
+  return (
+    <div className="mt-3 min-w-0 space-y-2">
+      {request.currentUpload && (
+        <p className="min-w-0 text-xs">
+          <a
+            className="block max-w-full truncate underline"
+            title={request.currentUpload.filename}
+            target="_blank"
+            rel="noreferrer"
+            href={`/api/applications/${applicationId}/evidence/uploads/${request.currentUpload.id}`}
+          >
+            Open saved {request.currentUpload.filename}
+          </a>{" "}
+          · {(request.currentUpload.byteSize / 1000).toFixed(1)} KB
+        </p>
+      )}
+      {request.applicability === "APPLICABLE" && (
+        <>
+          <div
+            className="rounded-md border border-dashed p-3"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (!disabled && !uploading) {
+                choose(event.dataTransfer.files.item(0));
+              }
+            }}
+          >
+            <Label htmlFor={inputId}>
+              {request.currentUpload ? "Replace evidence" : "Upload evidence"}
+            </Label>
+            <Input
+              id={inputId}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              disabled={disabled || uploading}
+              className="min-w-0 max-w-full"
+              onChange={(event) => choose(event.target.files?.item(0) ?? null)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              PDF, JPEG, or PNG · maximum 10,000,000 bytes. You can also drop a
+              file here.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!file || disabled || uploading}
+            onClick={upload}
+          >
+            {uploading
+              ? `Uploading ${progress ?? 0}%…`
+              : message.includes("Retry")
+                ? "Retry upload"
+                : request.currentUpload
+                  ? "Replace file"
+                  : "Upload file"}
+          </Button>
+          {progress !== null && (
+            <progress
+              className="w-full"
+              max="100"
+              value={progress}
+              aria-label="Upload progress"
+            />
+          )}
+          {message && (
+            <p
+              role="status"
+              className="break-words text-xs [overflow-wrap:anywhere]"
+            >
+              {message}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function OperatorDrafts() {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
@@ -364,12 +517,14 @@ function OperatorDrafts() {
   const [pendingCreateKey, setPendingCreateKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [conflict, setConflict] = useState<api.Draft | null>(null);
   const [conflictEdits, setConflictEdits] = useState<PatchFields>({});
   const [conflictBase, setConflictBase] = useState<api.Draft | null>(null);
   const [editDefaults, setEditDefaults] = useState<api.Draft | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     api
@@ -387,10 +542,15 @@ function OperatorDrafts() {
     const key = pendingCreateKey ?? crypto.randomUUID();
     setPendingCreateKey(key);
     setCreating(true);
-    setStatus(pendingCreateKey ? "Retrying draft creation…" : "Creating draft…");
+    setStatus(
+      pendingCreateKey ? "Retrying draft creation…" : "Creating draft…",
+    );
     try {
       const created = await api.createDraft(key);
-      setDrafts((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      setDrafts((current) => [
+        created,
+        ...current.filter((item) => item.id !== created.id),
+      ]);
       setDraft(created);
       setEditDefaults(null);
       setPendingCreateKey(null);
@@ -405,30 +565,40 @@ function OperatorDrafts() {
     }
   }
 
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!draft) return;
-    if (saving || conflict) return;
-    setSaving(true);
-    setStatus("Saving…");
-    setErrors({});
-    const data = new FormData(event.currentTarget);
+  function editsFrom(form: HTMLFormElement, base: api.Draft): PatchFields {
+    const data = new FormData(form);
     const localValues = Object.fromEntries(
-      fieldNames.map((field) => [
-        field,
-        formValue(field, data.get(field)),
-      ]),
+      fieldNames.map((field) => [field, formValue(field, data.get(field))]),
     ) as DraftValues;
     const operations = operationValues(data);
-    const baseValues = draftValues(draft);
-    const fields: Record<string, unknown> = Object.fromEntries(
+    const baseValues = draftValues(base);
+    const fields: PatchFields = Object.fromEntries(
       fieldNames
         .filter((field) => localValues[field] !== baseValues[field])
         .map((field) => [field, localValues[field]]),
     );
     Object.entries(operations).forEach(([field, value]) => {
-      if (canonical(value) !== canonical(draft[field as keyof api.Draft] ?? (field === "operatingHours" ? {} : []))) fields[field] = value;
+      if (
+        canonical(value) !==
+        canonical(
+          base[field as keyof api.Draft] ??
+            (field === "operatingHours" ? {} : []),
+        )
+      ) {
+        fields[field] = value;
+      }
     });
+    return fields;
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    if (saving || uploadingEvidence || conflict) return;
+    setSaving(true);
+    setStatus("Saving…");
+    setErrors({});
+    const fields = editsFrom(event.currentTarget, draft);
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
@@ -451,7 +621,9 @@ function OperatorDrafts() {
       try {
         const latest = await api.getDraft(draft.id);
         const committed = Object.entries(fields).every(
-          ([field, value]) => canonical(value) === canonical(latest[field as keyof api.Draft] ?? null),
+          ([field, value]) =>
+            canonical(value) ===
+            canonical(latest[field as keyof api.Draft] ?? null),
         );
         if (failure.status !== 409 && committed) {
           setDraft(latest);
@@ -532,11 +704,7 @@ function OperatorDrafts() {
     ? ({ ...conflictBase, ...conflictEdits } as api.Draft)
     : null;
 
-  const input = (
-    name: DraftField,
-    label: string,
-    required = false,
-  ) => (
+  const input = (name: DraftField, label: string, required = false) => (
     <div className="space-y-2">
       <Label htmlFor={name}>
         {label}
@@ -545,9 +713,9 @@ function OperatorDrafts() {
       <Input
         id={name}
         name={name}
-        defaultValue={
-          String(editDefaults ? (editDefaults[name] ?? "") : (draft[name] ?? ""))
-        }
+        defaultValue={String(
+          editDefaults ? (editDefaults[name] ?? "") : (draft[name] ?? ""),
+        )}
         disabled={saving || !!conflict}
         aria-invalid={!!errors[name]}
         aria-describedby={errors[name] ? `${name}-error` : undefined}
@@ -561,7 +729,12 @@ function OperatorDrafts() {
   );
 
   return (
-    <form key={editorGeneration} className="space-y-6" onSubmit={save}>
+    <form
+      ref={formRef}
+      key={editorGeneration}
+      className="space-y-6"
+      onSubmit={save}
+    >
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Application draft</h2>
@@ -629,7 +802,8 @@ function OperatorDrafts() {
                   {describeHours(conflictBase?.operatingHours)}
                 </dd>
                 <dd>
-                  <strong>Saved:</strong> {describeHours(conflict.operatingHours)}
+                  <strong>Saved:</strong>{" "}
+                  {describeHours(conflict.operatingHours)}
                 </dd>
                 <dd>
                   <strong>Your complete local edit:</strong>{" "}
@@ -644,8 +818,8 @@ function OperatorDrafts() {
             <p className="mb-4 text-xs text-muted-foreground">
               Keep and review applies only your changed selections and hour
               values over the latest saved revision. If both tabs changed the
-              same value, your explicit choice keeps your local value for
-              review before saving.
+              same value, your explicit choice keeps your local value for review
+              before saving.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -754,11 +928,9 @@ function OperatorDrafts() {
             className="w-full"
           >
             <NativeSelectOption value="">Not set</NativeSelectOption>
-            {["OWNER", "DIRECTOR", "EMPLOYEE", "REPRESENTATIVE"].map(
-              (role) => (
-                <NativeSelectOption key={role}>{role}</NativeSelectOption>
-              ),
-            )}
+            {["OWNER", "DIRECTOR", "EMPLOYEE", "REPRESENTATIVE"].map((role) => (
+              <NativeSelectOption key={role}>{role}</NativeSelectOption>
+            ))}
           </NativeSelect>
           {errors.applicantRole && (
             <p id="applicantRole-error" className="text-sm text-destructive">
@@ -797,10 +969,7 @@ function OperatorDrafts() {
             <NativeSelectOption value="false">No</NativeSelectOption>
           </NativeSelect>
           {errors.unitApplicable && (
-            <p
-              id="unitApplicable-error"
-              className="text-sm text-destructive"
-            >
+            <p id="unitApplicable-error" className="text-sm text-destructive">
               {errors.unitApplicable}
             </p>
           )}
@@ -872,7 +1041,11 @@ function OperatorDrafts() {
               </p>
             )}
           </div>
-          {input("proposedOpeningDate", "Proposed opening date (YYYY-MM-DD)", true)}
+          {input(
+            "proposedOpeningDate",
+            "Proposed opening date (YYYY-MM-DD)",
+            true,
+          )}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <fieldset
@@ -964,9 +1137,19 @@ function OperatorDrafts() {
           ))}
         </fieldset>
       </fieldset>
-      <section aria-labelledby="progress-heading" className="space-y-3 rounded-md border p-4">
-        <h3 id="progress-heading" className="font-medium">Saved completion: {draft.completion?.completed ?? 0} of {draft.completion?.required ?? 0} ({draft.completion?.percentage ?? 0}%)</h3>
-        <p className="text-sm text-muted-foreground">Progress reflects the last saved revision. Documents cannot be ready until upload is added.</p>
+      <section
+        aria-labelledby="progress-heading"
+        className="space-y-3 rounded-md border p-4"
+      >
+        <h3 id="progress-heading" className="font-medium">
+          Saved completion: {draft.completion?.completed ?? 0} of{" "}
+          {draft.completion?.required ?? 0} ({draft.completion?.percentage ?? 0}
+          %)
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Progress reflects the last saved revision, including ready evidence
+          files.
+        </p>
         <ul className="list-inside list-disc text-sm">
           {(draft.completion?.unmetItemIds ?? []).map((id) => (
             <li key={id}>
@@ -987,8 +1170,8 @@ function OperatorDrafts() {
             Evidence requirements
           </h3>
           <p className="text-sm text-muted-foreground">
-            Requirements update when this draft is saved. File upload is not
-            available yet.
+            Requirements update when this draft is saved. Ready files count
+            toward saved progress; uploads never save or clear local form edits.
           </p>
         </div>
         <ul className="grid gap-2 sm:grid-cols-2">
@@ -998,7 +1181,7 @@ function OperatorDrafts() {
               tabIndex={-1}
               key={request.id}
               aria-label={`${documentRequestLabel(request.type)} requirement`}
-              className="rounded-md border border-border p-3 text-sm"
+              className="min-w-0 overflow-hidden rounded-md border border-border p-3 text-sm"
             >
               <p className="font-medium">
                 {documentRequestLabel(request.type)}
@@ -1011,19 +1194,59 @@ function OperatorDrafts() {
                     : "Not required"}
               </p>
               <p className="mt-1 text-muted-foreground">{request.reason}</p>
+              <EvidenceUpload
+                applicationId={draft.id}
+                revision={draft.revision}
+                request={request}
+                disabled={saving || uploadingEvidence || !!conflict}
+                onBusyChange={setUploadingEvidence}
+                onCommitted={(result) => {
+                  const current = result.currentDraft;
+                  const localEdits = formRef.current
+                    ? editsFrom(formRef.current, draft)
+                    : {};
+                  setDraft(current);
+                  setDrafts((items) =>
+                    items.map((item) =>
+                      item.id === current.id ? current : item,
+                    ),
+                  );
+                  if (current.revision > result.revision) {
+                    setConflict(current);
+                    setConflictBase(draft);
+                    setConflictEdits(localEdits);
+                    setStatus(
+                      `Upload receipt recovered from revision ${result.revision}, but revision ${current.revision} is current. Review the current file and retained local edits.`,
+                    );
+                  } else {
+                    setStatus(
+                      `Saved evidence at revision ${current.revision}. Local form edits were not saved or cleared.`,
+                    );
+                  }
+                }}
+              />
             </li>
           ))}
         </ul>
       </section>
       <section aria-labelledby="declarations-heading" className="space-y-2">
-        <h3 id="declarations-heading" className="font-medium">Declarations</h3>
-        <p id="declaration.accuracy" tabIndex={-1} className="text-sm">Accuracy: You will confirm these when submitting.</p>
-        <p id="declaration.authority" tabIndex={-1} className="text-sm">Authority: You will confirm these when submitting.</p>
+        <h3 id="declarations-heading" className="font-medium">
+          Declarations
+        </h3>
+        <p id="declaration.accuracy" tabIndex={-1} className="text-sm">
+          Accuracy: You will confirm these when submitting.
+        </p>
+        <p id="declaration.authority" tabIndex={-1} className="text-sm">
+          Authority: You will confirm these when submitting.
+        </p>
       </section>
       <p role="status" className="text-sm text-muted-foreground">
         {status}
       </p>
-      <Button type="submit" disabled={saving || !!conflict}>
+      <Button
+        type="submit"
+        disabled={saving || uploadingEvidence || !!conflict}
+      >
         {saving ? "Saving…" : "Save draft"}
       </Button>
     </form>

@@ -80,6 +80,7 @@ jobs:
           required = {
               "simultaneousPostgresRetriesConvergeOnOneCommittedDraft",
               "concurrentPostgresReadsNeverMixDraftAndRequirementRevisions",
+              "concurrentPostgresEvidenceRetriesConverge",
           }
           cases = {}
           for report in Path("backend/target/surefire-reports").glob("TEST-*.xml"):
@@ -100,7 +101,7 @@ jobs:
                   f"PostgreSQL concurrency coverage failed: missing={sorted(missing)}, "
                   f"skipped_or_failed={sorted(skipped)}"
               )
-          print("Executed PostgreSQL create and coherent read/write concurrency tests (zero skips)")
+          print("Executed PostgreSQL create, upload retry, and coherent read/write concurrency tests (zero skips)")
           PY
       - name: Stage packaged JAR for rootfs scanning
         run: |

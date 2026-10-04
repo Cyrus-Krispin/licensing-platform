@@ -156,10 +156,10 @@ T07 accepts the routine initial-draft operations and progress defaults. PATCH om
 
 **Deliver:** the operator drops/selects required evidence, sees upload success/failure, and accesses persisted private files.
 
-- [ ] PDF/JPEG/PNG and the reviewed 10 MB contract are validated on the backend; failed upload leaves the prior good reference and unrelated draft data intact.
-- [ ] One current file per request; replacement creates an immutable file/metadata record and generated storage key, not an overwrite or original-filename path.
-- [ ] Database metadata and file-volume bytes persist; downloads/preview require ownership or an authorized submitted officer context. Unsubmitted files stay private to the operator.
-- [ ] Implement agreed staging/commit/cleanup safeguards and safe errors for storage or database failures; no public file directory, object-storage service, content findings, or email dependency.
+- [x] PDF/JPEG/PNG and the reviewed 10 MB contract are validated on the backend; failed upload leaves the prior good reference and unrelated draft data intact.
+- [x] One current file per request; replacement creates an immutable file/metadata record and generated storage key, not an overwrite or original-filename path.
+- [x] Database metadata and file-volume bytes persist; downloads/preview require ownership or an authorized submitted officer context. Unsubmitted files stay private to the operator.
+- [x] Implement agreed staging/commit/cleanup safeguards and safe errors for storage or database failures; no public file directory, object-storage service, content findings, or email dependency.
 
 **Validation:** browser drop/file selection; empty/type/signature/parse/size boundaries as accepted; filename/path attempts, authorization, replacement retention, partial-failure check, and file persistence after container recreation.
 

@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 class ApiException extends RuntimeException {
@@ -44,6 +45,15 @@ class ApiErrors {
                                 "error", exception.code,
                                 "message", exception.getMessage(),
                                 "fieldErrors", fieldErrors));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Map<String, Object>> tooLarge() {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Map.of(
+                        "error", "file_too_large",
+                        "message", "Files must be no larger than 10,000,000 bytes",
+                        "fieldErrors", Map.of()));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
