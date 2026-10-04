@@ -16,6 +16,8 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import * as api from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/StatusBadge";
 import { WorkspaceShell } from "@/WorkspaceShell";
 import {
   CasePanel,
@@ -313,7 +315,7 @@ function DayHoursFields({
         <NativeSelectOption value="OPEN">Open</NativeSelectOption>
       </NativeSelect>
       {state === "OPEN" && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-4">
           <div>
             <Label htmlFor={`${day}.opens`}>Opens on {dayLabel}</Label>
             <Input
@@ -778,7 +780,7 @@ function OperatorDrafts() {
   if (!draft) {
     return (
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Your applications</h2>
           <Button onClick={create} disabled={creating}>
             {creating
@@ -797,7 +799,7 @@ function OperatorDrafts() {
               key={item.id}
               variant="outline"
               disabled={saving}
-              className="w-full min-w-0 justify-between overflow-hidden"
+              className="h-auto w-full min-w-0 flex-col items-start justify-between gap-3 overflow-hidden px-4 py-4 text-left sm:flex-row sm:items-center"
               onClick={() => {
                 setDraft(item);
                 setShowWorkflow(item.status !== "DRAFT");
@@ -807,14 +809,14 @@ function OperatorDrafts() {
               }}
             >
               <span
-                className="min-w-0 truncate"
+                className="min-w-0 max-w-full truncate"
                 title={item.legalName || "Untitled draft"}
               >
                 {item.legalName || "Untitled draft"}
               </span>
-              <span className="shrink-0">
-                {statusLabel(item.status, "OPERATOR")} · Revision{" "}
-                {item.revision}
+              <span className="flex max-w-full flex-wrap items-center gap-2">
+                <StatusBadge status={item.status}>{statusLabel(item.status, "OPERATOR")}</StatusBadge>
+                <span className="text-xs text-muted-foreground">Revision {item.revision}</span>
               </span>
             </Button>
           ))}
@@ -834,7 +836,7 @@ function OperatorDrafts() {
     <div className="space-y-2">
       <Label htmlFor={name}>
         {label}
-        {required ? " (required to submit)" : ""}
+        {required && <><span aria-hidden="true" className="text-status-warning"> *</span><span className="sr-only"> (required to submit)</span></>}
       </Label>
       <Input
         id={name}
@@ -855,7 +857,12 @@ function OperatorDrafts() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="grid items-start gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
+      <nav aria-label="Application sections" className="flex flex-wrap gap-2 border-b pb-4 lg:sticky lg:top-28 lg:flex-col lg:border-b-0 lg:border-r lg:pr-6">
+        <p className="mb-2 w-full font-medium">Application sections</p>
+        {["Business", "Applicant", "Premises", "Operations", "Evidence"].map((section) => <a key={section} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-ring" href={`#application-${section.toLowerCase()}`}>{section}</a>)}
+      </nav>
+      <div className="flex min-w-0 flex-col gap-8">
       {showWorkflow && (
         <CasePanel
           id={draft.id}
@@ -907,7 +914,7 @@ function OperatorDrafts() {
         className="space-y-6"
         onSubmit={save}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">
               {draft.status === "DRAFT"
@@ -926,6 +933,10 @@ function OperatorDrafts() {
           >
             All drafts
           </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Changes are saved when you choose Save draft.</p>
+          <Button type="submit" disabled={saving || uploadingEvidence || !!conflict}>{saving ? "Saving…" : "Save changes"}</Button>
         </div>
         {conflict && (
           <Alert role="alert">
@@ -1044,14 +1055,43 @@ function OperatorDrafts() {
             </AlertDescription>
           </Alert>
         )}
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Business</legend>
+        <p className="text-sm text-muted-foreground"><span className="text-status-warning">*</span> Required for submission. Save an incomplete draft at any time.</p>
+        <section
+          aria-labelledby="progress-heading"
+          className="space-y-3 rounded-md border p-4"
+        >
+          <h3 id="progress-heading" className="font-medium">
+            Saved completion: {draft.completion?.completed ?? 0} of{" "}
+            {draft.completion?.required ?? 0} (
+            {draft.completion?.percentage ?? 0}
+            %)
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Progress reflects the last saved revision, including ready evidence
+            files.
+          </p>
+          <ul className="list-inside list-disc text-sm">
+            {(draft.completion?.unmetItemIds ?? []).map((id) => (
+              <li key={id}>
+                <a
+                  className="underline"
+                  href={`#${id}`}
+                  onClick={() => window.setTimeout(() => focusUnmet(id), 0)}
+                >
+                  {unmetLabel(draft, id)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <fieldset id="application-business" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Business</legend>
           {input("legalName", "Legal name", true)}
           {input("tradingName", "Trading name")}
           {input("registrationNumber", "Registration number", true)}
           <div className="space-y-2">
             <Label htmlFor="structure">
-              Business structure (required to submit)
+              Business structure <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
             </Label>
             <NativeSelect
               id="structure"
@@ -1085,11 +1125,11 @@ function OperatorDrafts() {
             )}
           </div>
         </fieldset>
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Applicant</legend>
+        <fieldset id="application-applicant" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Applicant</legend>
           {input("applicantName", "Name", true)}
           <div className="space-y-2">
-            <Label htmlFor="applicantRole">Role (required to submit)</Label>
+            <Label htmlFor="applicantRole">Role <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></Label>
             <NativeSelect
               id="applicantRole"
               name="applicantRole"
@@ -1121,8 +1161,8 @@ function OperatorDrafts() {
           {input("applicantEmail", "Contact email", true)}
           {input("applicantPhone", "Phone", true)}
         </fieldset>
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Premises</legend>
+        <fieldset id="application-premises" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Premises</legend>
           {input("premisesAddress", "Address", true)}
           {input("premisesName", "Premises name")}
           <div className="space-y-2">
@@ -1157,14 +1197,15 @@ function OperatorDrafts() {
           <div>
             {input(
               "unitNumber",
-              "Unit number (required to submit when applicable)",
+              "Unit number",
+              draft.unitApplicable === true,
             )}
             <p className="mt-2 text-xs text-muted-foreground">
               If you choose no unit, clear a retained unit number before saving.
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tenure">Tenure (required to submit)</Label>
+            <Label htmlFor="tenure">Tenure <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></Label>
             <NativeSelect
               id="tenure"
               name="tenure"
@@ -1187,12 +1228,12 @@ function OperatorDrafts() {
             )}
           </div>
         </fieldset>
-        <fieldset className="space-y-4">
-          <legend className="font-medium">Operations</legend>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <fieldset id="application-operations" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="text-lg font-semibold">Operations</legend>
+          <div className="flex flex-col gap-5">
             <div className="space-y-2">
               <Label htmlFor="businessType">
-                Business type (required to submit)
+                Business type <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </Label>
               <NativeSelect
                 id="businessType"
@@ -1227,7 +1268,7 @@ function OperatorDrafts() {
               true,
             )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-5">
             <fieldset
               id="preparationActivities"
               aria-describedby={
@@ -1321,35 +1362,7 @@ function OperatorDrafts() {
             ))}
           </fieldset>
         </fieldset>
-        <section
-          aria-labelledby="progress-heading"
-          className="space-y-3 rounded-md border p-4"
-        >
-          <h3 id="progress-heading" className="font-medium">
-            Saved completion: {draft.completion?.completed ?? 0} of{" "}
-            {draft.completion?.required ?? 0} (
-            {draft.completion?.percentage ?? 0}
-            %)
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Progress reflects the last saved revision, including ready evidence
-            files.
-          </p>
-          <ul className="list-inside list-disc text-sm">
-            {(draft.completion?.unmetItemIds ?? []).map((id) => (
-              <li key={id}>
-                <a
-                  className="underline"
-                  href={`#${id}`}
-                  onClick={() => window.setTimeout(() => focusUnmet(id), 0)}
-                >
-                  {unmetLabel(draft, id)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section aria-labelledby="requirements-heading" className="space-y-3">
+        <section id="application-evidence" tabIndex={-1} aria-labelledby="requirements-heading" className="flex scroll-mt-36 flex-col gap-4 border-t pt-6">
           <div>
             <h3 id="requirements-heading" className="font-medium">
               Evidence requirements
@@ -1360,7 +1373,7 @@ function OperatorDrafts() {
               edits.
             </p>
           </div>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="flex flex-col gap-4">
             {(draft.documentRequests ?? []).map((request) => (
               <li
                 id={`documentRequest.${request.id}`}
@@ -1372,13 +1385,13 @@ function OperatorDrafts() {
                 <p className="font-medium">
                   {documentRequestLabel(request.type)}
                 </p>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                <Badge variant={request.applicability === "NEEDS_INPUT" ? "warning" : request.applicability === "APPLICABLE" ? "info" : "secondary"}>
                   {request.applicability === "NEEDS_INPUT"
                     ? "More information needed"
                     : request.applicability === "APPLICABLE"
                       ? "Required"
                       : "Not required"}
-                </p>
+                </Badge>
                 <p className="mt-1 text-muted-foreground">{request.reason}</p>
                 <EvidenceUpload
                   applicationId={draft.id}
@@ -1424,7 +1437,10 @@ function OperatorDrafts() {
           type="button"
           variant="outline"
           disabled={saving || uploadingEvidence || !!conflict}
-          onClick={() => setShowWorkflow(true)}
+          onClick={() => {
+            setShowWorkflow(true);
+            window.setTimeout(() => document.getElementById("application-workflow")?.focus(), 0);
+          }}
         >
           Submission and history
         </Button>
@@ -1449,6 +1465,7 @@ function OperatorDrafts() {
           {saving ? "Saving…" : "Save draft"}
         </Button>
       </form>
+      </div>
     </div>
   );
 }

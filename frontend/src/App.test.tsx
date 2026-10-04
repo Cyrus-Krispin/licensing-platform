@@ -91,6 +91,17 @@ beforeEach(() => {
   vi.mocked(api.processingStatuses).mockResolvedValue([]);
 });
 
+test("opening submission focuses the workflow above the editor", async () => {
+  const draft = premisesDraft();
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.getCase).mockResolvedValue({ id: draft.id, revision: draft.revision, status: "DRAFT", latestVersion: 0, round: 0, working: draft, versions: [], issues: [], events: [] });
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  await userEvent.click(screen.getByRole("button", { name: "Submission and history" }));
+  await waitFor(() => expect(screen.getByRole("region", { name: "Application workflow" })).toHaveFocus());
+});
+
 test("workspace navigation preserves unsaved application edits", async () => {
   vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
   vi.mocked(api.listDrafts).mockResolvedValue([premisesDraft()]);
@@ -104,6 +115,17 @@ test("workspace navigation preserves unsaved application edits", async () => {
   expect(screen.getByLabelText("Trading name")).toHaveValue("Unsaved name");
   expect(screen.getByLabelText("Trading name")).toBeVisible();
   expect(api.saveDraft).not.toHaveBeenCalled();
+});
+
+test("notification bell shows unread count and updates after reading", async () => {
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.notifications).mockResolvedValue([{ id: "notice", applicationId: "case", message: "Corrections requested", createdAt: "2026-10-04T00:00:00Z", readAt: null }]);
+  render(<App />);
+  await userEvent.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  expect(await screen.findByText("Corrections requested")).toBeVisible();
+  vi.mocked(api.notifications).mockResolvedValue([]);
+  await userEvent.click(screen.getByRole("button", { name: "Mark as read" }));
+  expect(await screen.findByRole("button", { name: "Notifications, 0 unread" })).toBeVisible();
 });
 
 describe("authentication workspace", () => {
@@ -273,7 +295,7 @@ describe("authentication workspace", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
     await userEvent.selectOptions(
-      screen.getByLabelText("Business type (required to submit)"),
+      screen.getByRole("combobox", { name: "Business type (required to submit)" }),
       "CAFE",
     );
     await userEvent.selectOptions(
@@ -294,7 +316,7 @@ describe("authentication workspace", () => {
     expect(await screen.findByText("Open days require times")).toBeVisible();
     expect(screen.getByLabelText("Opens on Monday")).toHaveValue("09:00");
     expect(
-      screen.getByLabelText("Business type (required to submit)"),
+      screen.getByRole("combobox", { name: "Business type (required to submit)" }),
     ).toHaveAttribute("aria-describedby", "businessType-error");
   });
 
@@ -1128,7 +1150,8 @@ describe("authentication workspace", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("heading", { name: heading })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByRole("button", { name: "Profile menu" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(
       await screen.findByRole("heading", { name: "Sign in" }),
     ).toBeVisible();
@@ -1178,7 +1201,8 @@ describe("authentication workspace", () => {
     vi.mocked(api.logout).mockRejectedValue(new Error("Sign out failed"));
     render(<App />);
     await screen.findByRole("heading", { name: "Operator workspace" });
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByRole("button", { name: "Profile menu" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Sign out failed",
     );

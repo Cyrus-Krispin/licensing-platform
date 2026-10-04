@@ -37,7 +37,7 @@ for (const account of [
       await page.getByLabel(/Unit number/).fill("Suite 2");
       await page.getByLabel(/Tenure/).selectOption("RENTED");
       await page
-        .getByLabel("Business type (required to submit)")
+        .getByRole("combobox", { name: "Business type (required to submit)", exact: true })
         .selectOption("CAFE");
       await page.getByRole("checkbox", { name: "Cooking" }).check();
       await page.getByRole("checkbox", { name: "Dine In" }).check();
@@ -81,7 +81,7 @@ for (const account of [
       await expect(page.getByLabel(/Unit number/)).toHaveValue("Suite 2");
       await expect(page.getByLabel(/Tenure/)).toHaveValue("RENTED");
       await expect(
-        page.getByLabel("Business type (required to submit)"),
+        page.getByRole("combobox", { name: "Business type (required to submit)", exact: true }),
       ).toHaveValue("CAFE");
       await expect(page.getByLabel("Monday hours")).toHaveValue("CLOSED");
       await expect(page.getByLabel("Tuesday hours")).toHaveValue("OPEN");
@@ -133,12 +133,14 @@ for (const account of [
         )
         .toBe(true);
     }
+    await page.getByRole("heading", { name: account.heading }).scrollIntoViewIfNeeded();
     await page.screenshot({
       path: testInfo.outputPath(`${account.role}-workspace.png`),
-      fullPage: true,
+      fullPage: false,
     });
 
-    await page.getByRole("button", { name: "Sign out" }).focus();
+    await page.getByRole("button", { name: "Profile menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   });

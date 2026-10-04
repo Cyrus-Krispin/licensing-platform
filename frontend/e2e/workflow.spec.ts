@@ -45,10 +45,10 @@ test("operator and officer complete targeted corrections, retained versions and 
   await operator.getByLabel(/Registration number/).fill("202612345A");
   await operator.getByLabel(/Business structure/).selectOption("COMPANY");
   await operator
-    .getByLabel("Name (required to submit)", { exact: true })
+    .getByRole("textbox", { name: "Name (required to submit)", exact: true })
     .fill("Cafe Owner");
   await operator
-    .getByLabel("Role (required to submit)", { exact: true })
+    .getByRole("combobox", { name: "Role (required to submit)", exact: true })
     .selectOption("OWNER");
   await operator.getByLabel(/Contact email/).fill("owner@example.test");
   await operator.getByLabel(/Phone/).fill("12345678");
@@ -209,6 +209,7 @@ test("operator and officer complete targeted corrections, retained versions and 
   await expect(
     operator.getByRole("heading", { name: "Approved · Version 2" }),
   ).toBeVisible();
+  await operator.getByRole("tab", { name: "Notifications", exact: true }).click();
   await operator.getByRole("button", { name: "Refresh notifications" }).click();
   await expect(
     operator

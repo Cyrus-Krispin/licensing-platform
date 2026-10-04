@@ -6,6 +6,9 @@ import {
   type FormEvent,
 } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/StatusBadge";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -148,14 +151,14 @@ function Snapshot({
         {new Date(version.submittedAt).toLocaleString()} · Accuracy and
         authority confirmed
       </p>
-      <dl className="grid gap-3 sm:grid-cols-2">
+      <dl className="flex flex-col divide-y">
         {Object.entries(fieldLabels).map(([path, label]) => {
           const current = valueAt(version.snapshot, path);
           const previous = prior ? valueAt(prior.snapshot, path) : undefined;
           const changed =
             prior && JSON.stringify(current) !== JSON.stringify(previous);
           return (
-            <div key={path} className="min-w-0 rounded-md border p-3 text-sm">
+            <div key={path} id={`submitted-${path}`} tabIndex={-1} className="min-w-0 scroll-mt-36 py-4 text-sm">
               <dt className="font-medium">
                 {label}
                 {changed ? " · Changed" : ""}
@@ -178,7 +181,7 @@ function Snapshot({
             (item) => item.id === request.id,
           )?.currentUpload;
           return (
-            <li key={request.id} className="rounded-md border p-3 text-sm">
+            <li key={request.id} id={`submitted-documentRequest.${request.id}`} tabIndex={-1} className="scroll-mt-36 border-t py-4 text-sm">
               <p>
                 {display(request.type)} ·{" "}
                 {request.applicability === "APPLICABLE"
@@ -327,7 +330,7 @@ export function CasePanel({
   }
   if (!detail)
     return (
-      <section className="space-y-3">
+      <section id="application-workflow" tabIndex={-1} className="space-y-3">
         <p role="status">{error || "Loading application…"}</p>
         <Button type="button" variant="outline" onClick={load}>
           Retry application
@@ -339,10 +342,10 @@ export function CasePanel({
   const reviewing = role === "OFFICER" && detail.status === "UNDER_REVIEW";
   const latest = detail.versions.at(-1)?.snapshot;
   return (
-    <section className="space-y-6" aria-label="Application workflow">
+    <section id="application-workflow" tabIndex={-1} className="scroll-mt-36 space-y-6" aria-label="Application workflow">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
-          {statusLabel(detail.status, role)} · Version {detail.latestVersion}
+          <StatusBadge status={detail.status}>{statusLabel(detail.status, role)}</StatusBadge> <span className="ml-2 text-sm text-muted-foreground">· Version {detail.latestVersion}</span>
         </h2>
         <Button type="button" variant="outline" disabled={busy} onClick={load}>
           Refresh case history
@@ -380,10 +383,10 @@ export function CasePanel({
           {detail.issues.map((item) => (
             <div
               key={item.id}
-              className="space-y-2 rounded-md border p-4 text-sm"
+              className="space-y-3 border-t py-4 text-sm"
             >
               <p className="font-medium">
-                Round {item.round} · {item.state} ·{" "}
+                Round {item.round} · <Badge variant={item.state === "RESOLVED" ? "success" : item.state === "OPEN" ? "warning" : item.state === "AWAITING_REVIEW" ? "info" : "secondary"}>{display(item.state)}</Badge> ·{" "}
                 {fieldLabels[item.target ?? ""] ??
                   item.title ??
                   display(item.kind)}
@@ -392,7 +395,7 @@ export function CasePanel({
               {item.target && (
                 <a
                   className="underline"
-                  href={`#${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
+                  href={`#${role === "OFFICER" ? "submitted-" : ""}${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
                 >
                   Go to requested {item.kind === "FIELD" ? "field" : "document"}
                 </a>
@@ -418,7 +421,7 @@ export function CasePanel({
                   <Label htmlFor={`response-${item.id}`}>
                     Response to this request
                   </Label>
-                  <Input
+                  <Textarea
                     id={`response-${item.id}`}
                     name="response"
                     required
@@ -455,7 +458,7 @@ export function CasePanel({
                   <Label htmlFor={`reissue-${item.id}`}>
                     Further correction explanation
                   </Label>
-                  <Input
+                  <Textarea
                     id={`reissue-${item.id}`}
                     name="text"
                     required
@@ -488,7 +491,7 @@ export function CasePanel({
       )}
       {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && (
         <section
-          className="space-y-3 rounded-md border p-4"
+          className="space-y-3 border-t pt-6"
           aria-label="Submission declarations"
         >
           <h3 className="font-medium">
@@ -547,7 +550,7 @@ export function CasePanel({
       {reviewing && (
         <section className="space-y-4" aria-label="Review actions">
           <h3 className="font-medium">Review actions</h3>
-          <form className="space-y-3 rounded-md border p-4" onSubmit={issue}>
+          <form className="space-y-3 border-t pt-6" onSubmit={issue}>
             <Label htmlFor="issue-kind">Correction kind</Label>
             <NativeSelect
               id="issue-kind"
@@ -590,7 +593,7 @@ export function CasePanel({
             </Label>
             <Input id="issue-title" name="title" maxLength={200} />
             <Label htmlFor="issue-text">Correction explanation</Label>
-            <Input id="issue-text" name="text" required maxLength={2000} />
+            <Textarea id="issue-text" name="text" required maxLength={2000} />
             <Button type="submit" disabled={busy || !!pending}>
               Save review request
             </Button>
@@ -614,7 +617,7 @@ export function CasePanel({
             Publish fixed correction round
           </Button>
           <form
-            className="space-y-3 rounded-md border p-4"
+            className="space-y-3 border-t pt-6"
             onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
@@ -632,7 +635,7 @@ export function CasePanel({
             <Label htmlFor="decision-explanation">
               Decision explanation (required)
             </Label>
-            <Input
+            <Textarea
               id="decision-explanation"
               name="explanation"
               required
@@ -651,7 +654,7 @@ export function CasePanel({
           {detail.events.map((event) => (
             <li
               key={event.id}
-              className="break-words rounded-md border p-3 text-sm"
+              className="break-words border-l-2 py-3 pl-4 text-sm"
             >
               <p className="font-medium">
                 {display(event.type)} · {event.actor} · Version{" "}
@@ -743,15 +746,14 @@ export function OfficerCases() {
             <li key={item.id}>
               <Button
                 variant="outline"
-                className="h-auto w-full justify-between gap-3 whitespace-normal text-left"
+                className="h-auto w-full flex-col items-start justify-between gap-3 whitespace-normal px-4 py-4 text-left sm:flex-row sm:items-center"
                 onClick={() => setSelected(item.id)}
               >
                 <span className="min-w-0 break-words">
                   {item.legalName ?? "Untitled application"}
                 </span>
                 <span>
-                  {statusLabel(item.status, "OFFICER")} · Version{" "}
-                  {item.latestVersion}
+                  <StatusBadge status={item.status}>{statusLabel(item.status, "OFFICER")}</StatusBadge> <span className="text-xs text-muted-foreground">Version {item.latestVersion}</span>
                 </span>
               </Button>
             </li>
@@ -760,20 +762,22 @@ export function OfficerCases() {
     </section>
   );
 }
-export function Notifications() {
+export function Notifications({ onUnreadChange, active = true }: { onUnreadChange?: (count: number) => void; active?: boolean } = {}) {
   const [items, setItems] = useState<api.Notification[]>([]);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
-      setItems(await api.notifications());
+      const notifications = await api.notifications();
+      setItems(notifications);
+      onUnreadChange?.(notifications.filter((item) => !item.readAt).length);
       setError("");
     } catch (cause) {
       setError((cause as Error).message);
     }
-  }, []);
+  }, [onUnreadChange]);
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load]);
+  }, [load, active]);
   return (
     <section className="space-y-3 border-t pt-4" aria-label="Notifications">
       <h2 className="font-semibold">
@@ -783,10 +787,11 @@ export function Notifications() {
         Refresh notifications
       </Button>
       {error && <p role="alert">{error}</p>}
-      <ul className="space-y-2">
+      {!items.length && !error && <p className="text-sm text-muted-foreground">You’re all caught up. New application updates will appear here.</p>}
+      <ul className="divide-y">
         {items.map((item) => (
-          <li key={item.id} className="rounded-md border p-3 text-sm">
-            <p>{item.message}</p>
+          <li key={item.id} className="space-y-3 py-4 text-sm">
+            <p className="break-words">{!item.readAt && <Badge variant="info" className="mr-2">New</Badge>}{item.message}</p>
             <p className="text-muted-foreground">
               {new Date(item.createdAt).toLocaleString()} ·{" "}
               {item.readAt ? "Read" : "Unread"}

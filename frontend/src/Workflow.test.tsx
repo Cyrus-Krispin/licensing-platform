@@ -468,10 +468,22 @@ test("a stale officer cannot approve a newer unseen submission without refreshin
   await user.click(screen.getByRole("button",{name:"Record final decision"}));
   await screen.findByText("The saved case changed. Refresh and review the current submission before acting.");
   expect(api.caseCommand).not.toHaveBeenCalled();
-  expect(screen.getByText("Under Review · Version 1")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Under Review · Version 1" })).toBeVisible();
   expect(screen.queryByRole("button",{name:"Retry action"})).not.toBeInTheDocument();
   await user.click(screen.getByRole("button",{name:"Refresh case history"}));
-  await screen.findByText("Under Review · Version 2");
+  await screen.findByRole("heading", { name: "Under Review · Version 2" });
   await user.click(screen.getByRole("button",{name:"Record final decision"}));
   await waitFor(()=>expect(api.caseCommand).toHaveBeenCalledWith(newer,"decision",{outcome:"APPROVED",explanation:"Document review completed"},expect.any(String)));
+});
+
+
+test("officer feedback links reach retained field and document summaries", async () => {
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, status: "UNDER_REVIEW", latestVersion: 1, versions: [version], issues: [issue, { ...issue, id: "document-issue", kind: "DOCUMENT", target: "doc" }] });
+  render(<CasePanel id="case" role="OFFICER" />);
+  const field = await screen.findByRole("link", { name: "Go to requested field" });
+  const document = screen.getByRole("link", { name: "Go to requested document" });
+  expect(field).toHaveAttribute("href", "#submitted-legalName");
+  expect(document).toHaveAttribute("href", "#submitted-documentRequest.doc");
+  expect(window.document.getElementById("submitted-legalName")).toHaveTextContent("Cafe");
+  expect(window.document.getElementById("submitted-documentRequest.doc")).toHaveTextContent("registration.pdf");
 });
