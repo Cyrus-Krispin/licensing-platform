@@ -1,0 +1,458 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, expect, test, vi } from "vitest";
+import {
+  CasePanel,
+  OfficerCases,
+  Notifications,
+  statusLabel,
+} from "./Workflow";
+import * as api from "./lib/api";
+vi.mock("./lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof api>()),
+  getCase: vi.fn(),
+  caseCommand: vi.fn(),
+  listCases: vi.fn(),
+  notifications: vi.fn(),
+  readNotification: vi.fn(),
+}));
+const draft: api.Draft = {
+  id: "case",
+  revision: 2,
+  status: "DRAFT",
+  updatedAt: "2026-10-04T00:00:00Z",
+  legalName: "Cafe",
+  registrationNumber: "123",
+  structure: "COMPANY",
+  tradingName: null,
+  applicantName: "Owner",
+  applicantRole: "OWNER",
+  applicantEmail: "owner@example.test",
+  applicantPhone: "12345678",
+  documentRequests: [
+    {
+      id: "doc",
+      type: "BUSINESS_REGISTRATION",
+      applicability: "APPLICABLE",
+      reason: "Required",
+      currentUpload: {
+        id: "file",
+        requestId: "doc",
+        filename: "registration.pdf",
+        byteSize: 100,
+        sha256: "hash",
+        contentType: "application/pdf",
+        createdAt: "2026-10-04T00:00:00Z",
+        ready: true,
+      },
+    },
+  ],
+};
+const base: api.CaseDetail = {
+  id: "case",
+  revision: 2,
+  status: "DRAFT",
+  latestVersion: 0,
+  round: 0,
+  working: draft,
+  versions: [],
+  issues: [],
+  events: [],
+};
+const version = {
+  number: 1,
+  snapshot: draft,
+  submittedBy: "operator",
+  submittedAt: "2026-10-04T00:00:00Z",
+  accuracy: true,
+  authority: true,
+};
+const issue: api.CaseIssue = {
+  id: "issue",
+  kind: "FIELD",
+  target: "legalName",
+  text: "Correct legal name",
+  title: null,
+  state: "OPEN",
+  round: 1,
+  reviewedVersion: 1,
+  response: null,
+};
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(api.getCase).mockResolvedValue(base);
+  vi.mocked(api.caseCommand).mockResolvedValue(base);
+  vi.mocked(api.listCases).mockResolvedValue([]);
+  vi.mocked(api.notifications).mockResolvedValue([]);
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        json: async () => [{ uploadId: "file", state: "COMPLETE" }],
+      }),
+  );
+});
+test("fresh declarations are required and submission uses a concurrency snapshot", async () => {
+  const user = userEvent.setup();
+  const changed = vi.fn();
+  render(<CasePanel id="case" role="OPERATOR" onChanged={changed} />);
+  await screen.findByRole("button", { name: "Submit application" });
+  expect(
+    screen.getByRole("button", { name: "Submit application" }),
+  ).toBeDisabled();
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I confirm this application is accurate.",
+    }),
+  );
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I am authorised to apply for this business.",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Submit application" }));
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenCalledWith(
+      base,
+      "submit",
+      { accuracy: true, authority: true },
+      expect.any(String),
+    ),
+  );
+  expect(changed).toHaveBeenCalled();
+  expect(
+    screen.getByRole("checkbox", {
+      name: "I confirm this application is accurate.",
+    }),
+  ).not.toBeChecked();
+});
+test("unsaved fields block submission without sending a command", async () => {
+  const user = userEvent.setup();
+  render(
+    <CasePanel
+      id="case"
+      role="OPERATOR"
+      beforeCommand={() => {
+        throw new Error("Save fields first");
+      }}
+    />,
+  );
+  await screen.findByRole("button", { name: "Submit application" });
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I confirm this application is accurate.",
+    }),
+  );
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I am authorised to apply for this business.",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Submit application" }));
+  expect(await screen.findByText("Save fields first")).toBeVisible();
+  expect(api.caseCommand).not.toHaveBeenCalled();
+});
+test("unknown command result safely retries identical key and body", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getCase).mockResolvedValue({
+    ...base,
+    status: "APPLICATION_RECEIVED",
+    versions: [version],
+    latestVersion: 1,
+  });
+  vi.mocked(api.caseCommand)
+    .mockRejectedValueOnce(new Error("Network lost"))
+    .mockResolvedValueOnce({ ...base, status: "UNDER_REVIEW" });
+  render(<CasePanel id="case" role="OFFICER" />);
+  await user.click(await screen.findByRole("button", { name: "Start review" }));
+  await user.click(await screen.findByRole("button", { name: "Retry action" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(api.caseCommand).mock.calls[0]).toEqual(
+    vi.mocked(api.caseCommand).mock.calls[1],
+  );
+});
+test("correction responses and resubmission remain separate and history is retained", async () => {
+  const user = userEvent.setup();
+  const detail = {
+    ...base,
+    status: "PENDING_PRE_SITE_RESUBMISSION" as const,
+    latestVersion: 1,
+    versions: [version],
+    issues: [issue],
+    events: [
+      {
+        id: "event",
+        type: "publish-corrections",
+        actor: "officer",
+        versionNumber: 1,
+        createdAt: "2026-10-04T00:00:00Z",
+        detail: { reason: "Correct name" },
+      },
+    ],
+  };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  vi.mocked(api.caseCommand).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OPERATOR" />);
+  await user.type(
+    await screen.findByLabelText("Response to this request"),
+    "Name corrected",
+  );
+  await user.click(screen.getByRole("button", { name: "Save response" }));
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenCalledWith(
+      detail,
+      "response",
+      { issueId: "issue", response: "Name corrected" },
+      expect.any(String),
+    ),
+  );
+  expect(
+    screen.getByRole("link", { name: "Go to requested field" }),
+  ).toHaveAttribute("href", "#legalName");
+  expect(screen.getByText("reason: Correct name")).toBeVisible();
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I confirm this application is accurate.",
+    }),
+  );
+  await user.click(
+    screen.getByRole("checkbox", {
+      name: "I am authorised to apply for this business.",
+    }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Resubmit application" }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "resubmit",
+      { accuracy: true, authority: true },
+      expect.any(String),
+    ),
+  );
+});
+test("officer confirms resolution, can reissue and publishes a fixed round", async () => {
+  const user = userEvent.setup();
+  const detail = {
+    ...base,
+    status: "UNDER_REVIEW" as const,
+    latestVersion: 2,
+    versions: [
+      version,
+      {
+        ...version,
+        number: 2,
+        snapshot: { ...draft, legalName: "Corrected Cafe" },
+      },
+    ],
+    issues: [
+      { ...issue, state: "AWAITING_REVIEW" as const, response: "Corrected" },
+    ],
+  };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  vi.mocked(api.caseCommand).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OFFICER" />);
+  await user.click(
+    await screen.findByRole("button", { name: "Confirm resolution" }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "resolve",
+      { issueId: "issue" },
+      expect.any(String),
+    ),
+  );
+  await user.type(
+    screen.getByLabelText("Further correction explanation"),
+    "Still incomplete",
+  );
+  await user.click(
+    screen.getByRole("button", {
+      name: "Request further correction next round",
+    }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "reissue",
+      { issueId: "issue", text: "Still incomplete" },
+      expect.any(String),
+    ),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Publish fixed correction round" }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "publish-corrections",
+      {},
+      expect.any(String),
+    ),
+  );
+  expect(screen.getByText("Legal name · Changed")).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "registration.pdf" }),
+  ).toHaveAttribute("href", "/api/cases/case/evidence/uploads/file");
+  await user.selectOptions(
+    screen.getByLabelText("View immutable submission"),
+    "1",
+  );
+  expect(screen.queryByText("Legal name · Changed")).not.toBeInTheDocument();
+});
+test("officer creates additional evidence, deletes drafts, and records reasoned rejection", async () => {
+  const user = userEvent.setup();
+  const detail = {
+    ...base,
+    status: "UNDER_REVIEW" as const,
+    versions: [version],
+    issues: [{ ...issue, state: "DRAFT" as const }],
+  };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  vi.mocked(api.caseCommand).mockResolvedValue(detail);
+  render(<CasePanel id="case" role="OFFICER" />);
+  await user.selectOptions(
+    await screen.findByLabelText("Correction kind"),
+    "ADDITIONAL",
+  );
+  await user.type(
+    screen.getByLabelText(/Additional evidence title/),
+    "Consent",
+  );
+  await user.type(
+    screen.getByLabelText("Correction explanation"),
+    "Provide signed consent",
+  );
+  await user.click(screen.getByRole("button", { name: "Save review request" }));
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "save-issue",
+      {
+        kind: "ADDITIONAL",
+        target: undefined,
+        text: "Provide signed consent",
+        title: "Consent",
+      },
+      expect.any(String),
+    ),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Remove unpublished request" }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "delete-issue",
+      { issueId: "issue" },
+      expect.any(String),
+    ),
+  );
+  await user.selectOptions(screen.getByLabelText("Final decision"), "REJECTED");
+  await user.type(
+    screen.getByLabelText("Decision explanation (required)"),
+    "Insufficient evidence",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Record final decision" }),
+  );
+  await waitFor(() =>
+    expect(api.caseCommand).toHaveBeenLastCalledWith(
+      detail,
+      "decision",
+      { outcome: "REJECTED", explanation: "Insufficient evidence" },
+      expect.any(String),
+    ),
+  );
+});
+test("all statuses stay in the officer queue and filters preserve cases", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listCases).mockResolvedValue(
+    Object.keys({
+      APPLICATION_RECEIVED: 1,
+      UNDER_REVIEW: 1,
+      PENDING_PRE_SITE_RESUBMISSION: 1,
+      PRE_SITE_RESUBMITTED: 1,
+      APPROVED: 1,
+      REJECTED: 1,
+    }).map((status, index) => ({
+      id: String(index),
+      revision: 1,
+      status: status as api.Draft["status"],
+      latestVersion: 1,
+      legalName: `Cafe ${index}`,
+      updatedAt: "2026-10-04T00:00:00Z",
+    })),
+  );
+  render(<OfficerCases />);
+  await screen.findByText("6 applications");
+  await user.selectOptions(
+    screen.getByLabelText("Application status"),
+    "REJECTED",
+  );
+  expect(screen.getByText("1 applications")).toBeVisible();
+  expect(screen.queryByText("Cafe 0")).not.toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Application status"), "ALL");
+  await user.click(screen.getByRole("button", { name: /Cafe 0/ }));
+  await screen.findByRole("button", { name: "All cases" });
+  await user.click(screen.getByRole("button", { name: "All cases" }));
+  await screen.findByText("6 applications");
+  expect(statusLabel("APPLICATION_RECEIVED", "OPERATOR")).toBe("Submitted");
+});
+test("notifications persist and mark read through the API", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.notifications)
+    .mockResolvedValueOnce([
+      {
+        id: "notice",
+        applicationId: "case",
+        message: "Under Review",
+        createdAt: "2026-10-04T00:00:00Z",
+        readAt: null,
+      },
+    ])
+    .mockResolvedValue([
+      {
+        id: "notice",
+        applicationId: "case",
+        message: "Under Review",
+        createdAt: "2026-10-04T00:00:00Z",
+        readAt: "2026-10-04T00:01:00Z",
+      },
+    ]);
+  vi.mocked(api.readNotification).mockResolvedValue();
+  render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Mark as read" }));
+  await screen.findByText("Notifications · 0 unread");
+  expect(api.readNotification).toHaveBeenCalledWith("notice");
+  await user.click(
+    screen.getByRole("button", { name: "Refresh notifications" }),
+  );
+  expect(api.notifications).toHaveBeenCalledTimes(3);
+});
+test("read errors recover and stale actions require deliberate refresh", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getCase)
+    .mockRejectedValueOnce(new Error("Unavailable"))
+    .mockResolvedValue({ ...base, status: "APPLICATION_RECEIVED" });
+  vi.mocked(api.caseCommand).mockRejectedValue(new api.ApiError("Stale", 409));
+  render(<CasePanel id="case" role="OFFICER" />);
+  await user.click(
+    await screen.findByRole("button", { name: "Retry application" }),
+  );
+  await user.click(await screen.findByRole("button", { name: "Start review" }));
+  await screen.findByText("Stale");
+  expect(
+    screen.queryByRole("button", { name: "Retry action" }),
+  ).not.toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: "Refresh case history" }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText("Stale")).not.toBeInTheDocument(),
+  );
+});

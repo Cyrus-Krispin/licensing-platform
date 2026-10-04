@@ -27,7 +27,7 @@ for (const account of [
     ).toBeVisible();
     await expect(page.locator("main")).toHaveCSS("overflow-x", "visible");
     if (account.role === "operator") {
-      const legalName = "L".repeat(200);
+      const legalName = `L${Date.now()}`.padEnd(200, "L");
       await page.getByRole("button", { name: "Create draft" }).click();
       await page.getByLabel(/Legal name/).fill(legalName);
       await page.getByLabel(/Role/).selectOption("REPRESENTATIVE");
