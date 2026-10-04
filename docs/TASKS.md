@@ -111,10 +111,12 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Deliver:** an operator creates an owned application and saves the business/applicant portions of a working draft.
 
-- [ ] Draft creation/list/detail and field saves persist the agreed identity/contact schema, including optional trading name and representative role.
-- [ ] Incomplete drafts are saveable; invalid supplied values have linked errors and preserve other saved/recoverable values. Contact email does not alter login identity or introduce email notifications.
-- [ ] Sign out/in and reload recover saved data. Officers cannot see unsubmitted drafts; other test owners cannot access them.
-- [ ] Draft saves do not create immutable submission versions. Use the agreed revision-conflict behaviour from the outset.
+- [x] Draft creation/list/detail and field saves persist the agreed identity/contact schema, including optional trading name and representative role.
+- [x] Incomplete drafts are saveable; invalid supplied values have linked errors and preserve other saved/recoverable values. Contact email does not alter login identity or introduce email notifications.
+- [x] Sign out/in and reload recover saved data. Officers cannot see unsubmitted drafts; other test owners cannot access them.
+- [x] Draft saves do not create immutable submission versions. Expected revisions prevent competing saves from overwriting each other.
+
+T05 accepts only the business/applicant validation table as routine defaults. Creation uses an actor-scoped idempotency key, PATCH omission leaves values unchanged, explicit null clears an optional or incomplete value, and stale saves return conflict guidance without clearing client input. Representative authorization evidence remains T06 work; all other proposal markers, including the correction-completeness exception, remain unresolved.
 
 **Validation:** browser save/reopen, API ownership/role and draft-validation boundaries, and competing-save conflict check.
 
@@ -124,12 +126,14 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Deliver:** the draft records premises and shows the correct applicable evidence requests.
 
-- [ ] Address, optional premises name, conditional unit, and tenure follow reviewed rules.
-- [ ] Registration/layout/food-use permission requests exist for every draft; lease/ownership and representative authorization requirements follow current inputs.
-- [ ] Initial-draft changes recalculate requirements without deleting retained data or existing document records. Show why a conditional request is needed.
-- [ ] Persist request identities so later feedback and submission versions can link to individual document requests.
+- [x] Address, optional premises name, conditional unit, and tenure follow reviewed rules.
+- [x] Registration/layout/food-use permission requests exist for every draft; lease/ownership and representative authorization requirements follow current inputs.
+- [x] Initial-draft changes recalculate requirements without deleting retained data or existing document records. Show why a conditional request is needed.
+- [x] Persist request identities so later feedback and submission versions can link to individual document requests.
 
 **Validation:** browser tenure/unit/representative changes and API requirement calculations. File bytes/upload UI are delivered by T08, not this task.
+
+T06 keeps incomplete premises values saveable, validates explicit values and the resulting unit combination atomically, and recalculates all six retained request records in the revision-checked save transaction. The product distinguishes required, known-not-required, and missing-input conditions without claiming uploads, evidence success, progress, or submission readiness. H2 provides the labelled portable local check; the required PostgreSQL CI job verifies migrations and races against PostgreSQL, while Compose/Playwright verifies persisted product recovery and conflict safety.
 
 ## T07 — Complete operations, declarations, and progress
 
@@ -137,10 +141,12 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Deliver:** the operator can complete all form sections and understand remaining submission requirements.
 
-- [ ] Café/restaurant, preparation activities, service modes, seven daily hour entries, and opening date follow reviewed rules.
-- [ ] Display accuracy/authority confirmation and unmet-item errors; capture declarations according to the reviewed submission design.
-- [ ] Progress uses the reviewed server-backed formula and current applicable document readiness. Optional/inapplicable inputs and simulated status do not affect required completion.
-- [ ] The form remains keyboard-operable and saved data survives invalid inputs/network failures. Submission is not enabled by percentage alone.
+- [x] Café/restaurant, preparation activities, service modes, seven daily hour entries, and opening date follow reviewed rules.
+- [x] Display accuracy/authority confirmation and stable unmet-item navigation without capturing declarations before submission.
+- [x] Progress uses the reviewed server-backed formula and current applicable document readiness. Optional/inapplicable inputs and simulated status do not affect required completion.
+- [x] The form remains keyboard-operable and saved data survives invalid inputs/network failures. No submission action is introduced.
+
+T07 accepts the routine initial-draft operations and progress defaults. PATCH omission retains values, explicit null clears nullable business type/opening date, empty arrays/maps clear sets/hours, and malformed supplied types are rejected. Progress describes only the saved server revision. T08 supplies real ready-file state; T10 captures fresh declaration confirmations and actor/time snapshots. The dependent-document correction-resubmit completeness exception remains unaccepted and unimplemented.
 
 **Validation:** valid and boundary-invalid fields/sets/hours/date, conditional denominator calculations, browser error navigation, and persisted complete-field draft. T08 later supplies ready files to the same progress calculation; do not fabricate successful uploads.
 
@@ -150,10 +156,10 @@ Verify behaviour at the highest useful seam: API/database integration for rules 
 
 **Deliver:** the operator drops/selects required evidence, sees upload success/failure, and accesses persisted private files.
 
-- [ ] PDF/JPEG/PNG and the reviewed 10 MB contract are validated on the backend; failed upload leaves the prior good reference and unrelated draft data intact.
-- [ ] One current file per request; replacement creates an immutable file/metadata record and generated storage key, not an overwrite or original-filename path.
-- [ ] Database metadata and file-volume bytes persist; downloads/preview require ownership or an authorized submitted officer context. Unsubmitted files stay private to the operator.
-- [ ] Implement agreed staging/commit/cleanup safeguards and safe errors for storage or database failures; no public file directory, object-storage service, content findings, or email dependency.
+- [x] PDF/JPEG/PNG and the reviewed 10 MB contract are validated on the backend; failed upload leaves the prior good reference and unrelated draft data intact.
+- [x] One current file per request; replacement creates an immutable file/metadata record and generated storage key, not an overwrite or original-filename path.
+- [x] Database metadata and file-volume bytes persist; downloads/preview require ownership or an authorized submitted officer context. Unsubmitted files stay private to the operator.
+- [x] Implement agreed staging/commit/cleanup safeguards and safe errors for storage or database failures; no public file directory, object-storage service, content findings, or email dependency.
 
 **Validation:** browser drop/file selection; empty/type/signature/parse/size boundaries as accepted; filename/path attempts, authorization, replacement retention, partial-failure check, and file persistence after container recreation.
 
