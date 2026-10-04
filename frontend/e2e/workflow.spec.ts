@@ -40,15 +40,15 @@ test("operator and officer complete targeted corrections, retained versions and 
   officer.setDefaultTimeout(15000);
   const name = `Workflow Cafe ${Date.now()}`;
   await login(operator, "operator");
-  await operator.getByRole("button", { name: "Create draft" }).click();
+  await operator.getByRole("button", { name: "Create application" }).click();
   await operator.getByLabel(/Legal name/).fill(name);
   await operator.getByLabel(/Registration number/).fill("202612345A");
   await operator.getByLabel(/Business structure/).selectOption("COMPANY");
   await operator
-    .getByLabel("Name (required to submit)", { exact: true })
+    .getByRole("textbox", { name: "Name (required to submit)", exact: true })
     .fill("Cafe Owner");
   await operator
-    .getByLabel("Role (required to submit)", { exact: true })
+    .getByRole("combobox", { name: "Role (required to submit)", exact: true })
     .selectOption("OWNER");
   await operator.getByLabel(/Contact email/).fill("owner@example.test");
   await operator.getByLabel(/Phone/).fill("12345678");
@@ -63,18 +63,6 @@ test("operator and officer complete targeted corrections, retained versions and 
     .getByRole("checkbox", { name: "Dine In", exact: true })
     .check();
   await operator.getByLabel(/Proposed opening date/).fill("2026-12-01");
-  for (const day of [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-  ])
-    await operator
-      .getByLabel(`${day} hours`, { exact: true })
-      .selectOption("CLOSED");
   await operator
     .getByRole("button", { name: "Save draft", exact: true })
     .click();
@@ -108,7 +96,7 @@ test("operator and officer complete targeted corrections, retained versions and 
     ).toBeVisible();
   }
   await operator
-    .getByRole("button", { name: "Submission and history" })
+    .getByRole("button", { name: "Submit application" })
     .click();
   await declarations(operator);
   await operator
@@ -209,10 +197,11 @@ test("operator and officer complete targeted corrections, retained versions and 
   await expect(
     operator.getByRole("heading", { name: "Approved · Version 2" }),
   ).toBeVisible();
+  await operator.getByRole("button", { name: /^Notifications, .* unread$/ }).click();
   await operator.getByRole("button", { name: "Refresh notifications" }).click();
   await expect(
     operator
-      .getByRole("region", { name: "Notifications" })
+      .getByRole("dialog", { name: /^Notifications/ })
       .getByText(/approved/i).first(),
   ).toBeVisible();
   await officer.screenshot({

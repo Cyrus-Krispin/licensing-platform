@@ -386,3 +386,8 @@ export async function readNotification(id: string): Promise<void> {
   });
   if (!response.ok) await workflowResponse(response);
 }
+
+export async function clearNotifications(): Promise<void> {
+  const response = await csrfRequest("/api/notifications", { method: "DELETE" });
+  if (!response.ok) await workflowResponse(response);
+}

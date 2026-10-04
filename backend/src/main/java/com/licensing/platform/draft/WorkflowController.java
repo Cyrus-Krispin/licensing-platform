@@ -18,6 +18,7 @@ public class WorkflowController {
     @PostMapping("/api/cases/{id}/{operation}") public WorkflowService.CaseDetail command(@PathVariable UUID id,@PathVariable String operation,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object> body,Principal actor) {return workflow.command(id,actor.getName(),operation,key,body);}
     @GetMapping("/api/cases/{id}/evidence/uploads/{uploadId}") public ResponseEntity<?> download(@PathVariable UUID id,@PathVariable UUID uploadId,Principal actor) {return evidence.download(id,uploadId,actor);}
     @GetMapping("/api/cases/{id}/checks") public List<SimulatedCheckService.Status> checks(@PathVariable UUID id,Principal actor) {return checks.statuses(id,actor.getName());}
+    @DeleteMapping("/api/notifications") @ResponseStatus(HttpStatus.NO_CONTENT) public void clear(Principal actor) {workflow.clearNotifications(actor.getName());}
     @GetMapping("/api/notifications") public List<WorkflowService.Notification> notifications(Principal actor) {return workflow.notifications(actor.getName());}
     @PostMapping("/api/notifications/{id}/read") @ResponseStatus(HttpStatus.NO_CONTENT) public void read(@PathVariable UUID id,Principal actor) {workflow.markRead(id,actor.getName());}
 }

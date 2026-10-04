@@ -1,5 +1,6 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,10 +17,13 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import * as api from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/StatusBadge";
+import { EvidenceUpload } from "@/EvidenceUpload";
+import { WorkspaceShell } from "@/WorkspaceShell";
 import {
   CasePanel,
   OfficerCases,
-  Notifications,
   statusLabel,
 } from "@/Workflow";
 
@@ -43,7 +47,6 @@ const fieldNames = [
 type DraftField = (typeof fieldNames)[number];
 type DraftValues = Record<DraftField, string | boolean | null>;
 type PatchFields = Record<string, unknown>;
-type DayHours = NonNullable<api.Draft["operatingHours"]>[string];
 
 const fieldLabels: Record<DraftField, string> = {
   legalName: "Legal name",
@@ -72,16 +75,6 @@ const activities = [
   "PREPACKAGED_FOOD_SALE",
 ];
 const modes = ["DINE_IN", "TAKEAWAY", "DELIVERY"];
-const days = [
-  "MONDAY",
-  "TUESDAY",
-  "WEDNESDAY",
-  "THURSDAY",
-  "FRIDAY",
-  "SATURDAY",
-  "SUNDAY",
-];
-
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return [...value].sort();
   if (value && typeof value === "object") {
@@ -100,11 +93,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(canonicalValue(value));
 }
 
-function dayState(value: DayHours | undefined) {
-  if (!value) return "NOT_SET";
-  return value.closed ? "CLOSED" : "OPEN";
-}
-
 function operationValues(data: FormData): PatchFields {
   return {
     preparationActivities: data
@@ -112,22 +100,7 @@ function operationValues(data: FormData): PatchFields {
       .map(String)
       .sort(),
     serviceModes: data.getAll("serviceModes").map(String).sort(),
-    operatingHours: Object.fromEntries(
-      [...days].sort().flatMap((day) => {
-        const state = String(data.get(`${day}.state`) ?? "NOT_SET");
-        if (state === "NOT_SET") return [];
-        const hours =
-          state === "CLOSED"
-            ? { closed: true }
-            : {
-                closed: false,
-                opens: String(data.get(`${day}.opens`) ?? ""),
-                closes: String(data.get(`${day}.closes`) ?? ""),
-                closesNextDay: data.get(`${day}.closesNextDay`) === "true",
-              };
-        return [[day, hours]];
-      }),
-    ),
+
   };
 }
 
@@ -150,54 +123,6 @@ function mergeConflictEdits(
     });
     merged[field] = [...result].sort();
   });
-  if (edits.operatingHours) {
-    const local = edits.operatingHours as Record<string, DayHours>;
-    const baseHours = base.operatingHours ?? {};
-    const hours = { ...(latest.operatingHours ?? {}) };
-    new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach(
-      (day) => {
-        const baseDay = baseHours[day];
-        const localDay = local[day];
-        const latestDay = hours[day];
-        const original = canonicalValue(baseHours[day]) as Record<
-          string,
-          unknown
-        > | null;
-        const changed = canonicalValue(local[day]) as Record<
-          string,
-          unknown
-        > | null;
-        if (canonical(original) === canonical(changed)) return;
-        const remoteStateChanged = dayState(latestDay) !== dayState(baseDay);
-        const localStateChanged = dayState(localDay) !== dayState(baseDay);
-        if (remoteStateChanged || localStateChanged) {
-          if (localDay) hours[day] = localDay;
-          else delete hours[day];
-          return;
-        }
-        if (!changed) {
-          delete hours[day];
-          return;
-        }
-        const current = {
-          ...((canonicalValue(hours[day]) as Record<string, unknown> | null) ??
-            {}),
-        };
-        const keys = new Set([
-          ...Object.keys(original ?? {}),
-          ...Object.keys(changed),
-        ]);
-        keys.forEach((key) => {
-          if (canonical(original?.[key]) !== canonical(changed[key])) {
-            if (changed[key] === undefined) delete current[key];
-            else current[key] = changed[key];
-          }
-        });
-        hours[day] = current as DayHours;
-      },
-    );
-    merged.operatingHours = hours;
-  }
   return merged;
 }
 
@@ -226,18 +151,6 @@ function documentRequestLabel(type: string) {
     .join(" ");
 }
 
-function describeHours(hours: api.Draft["operatingHours"] = {}) {
-  return days
-    .map((day) => {
-      const value = hours?.[day];
-      if (!value) return `${documentRequestLabel(day)}: not set`;
-      if (value.closed) return `${documentRequestLabel(day)}: closed`;
-      const overnight = value.closesNextDay ? " next day" : "";
-      return `${documentRequestLabel(day)}: ${value.opens}–${value.closes}${overnight}`;
-    })
-    .join("; ");
-}
-
 function describeSelection(values: string[] | undefined) {
   return values?.length
     ? values.map(documentRequestLabel).join(", ")
@@ -247,9 +160,6 @@ function describeSelection(values: string[] | undefined) {
 function unmetLabel(draft: api.Draft, id: string) {
   if (id === "preparationActivities") return "Preparation activities";
   if (id === "serviceModes") return "Service modes";
-  if (id.startsWith("operatingHours.")) {
-    return `${documentRequestLabel(id.split(".")[1])} hours`;
-  }
   if (id.startsWith("documentRequest.")) {
     const requestId = id.slice("documentRequest.".length);
     const request = draft.documentRequests?.find(
@@ -276,339 +186,14 @@ function focusUnmet(id: string) {
   (control ?? target)?.focus();
 }
 
-function DayHoursFields({
-  day,
-  initial,
-  disabled,
-  error,
-}: {
-  day: string;
-  initial?: DayHours;
-  disabled: boolean;
-  error?: string;
-}) {
-  const [state, setState] = useState(
-    initial ? (initial.closed ? "CLOSED" : "OPEN") : "NOT_SET",
-  );
-  const errorId = error ? `${day}.error` : undefined;
-  const dayLabel = documentRequestLabel(day);
-  return (
-    <div
-      id={`operatingHours.${day}`}
-      className="space-y-3 rounded-md border p-3"
-    >
-      <Label htmlFor={`${day}.state`}>{dayLabel} hours</Label>
-      <NativeSelect
-        id={`${day}.state`}
-        name={`${day}.state`}
-        value={state}
-        onChange={(event) => setState(event.target.value)}
-        disabled={disabled}
-        aria-invalid={!!error}
-        aria-describedby={errorId}
-        className="w-full"
-      >
-        <NativeSelectOption value="NOT_SET">Not set</NativeSelectOption>
-        <NativeSelectOption value="CLOSED">Closed</NativeSelectOption>
-        <NativeSelectOption value="OPEN">Open</NativeSelectOption>
-      </NativeSelect>
-      {state === "OPEN" && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <Label htmlFor={`${day}.opens`}>Opens on {dayLabel}</Label>
-            <Input
-              id={`${day}.opens`}
-              name={`${day}.opens`}
-              type="time"
-              defaultValue={initial?.opens ?? ""}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-          </div>
-          <div>
-            <Label htmlFor={`${day}.closes`}>Closes on {dayLabel}</Label>
-            <Input
-              id={`${day}.closes`}
-              name={`${day}.closes`}
-              type="time"
-              defaultValue={initial?.closes ?? ""}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id={`${day}.closesNextDay`}
-              name={`${day}.closesNextDay`}
-              value="true"
-              defaultChecked={!!initial?.closesNextDay}
-              disabled={disabled}
-              aria-invalid={!!error}
-              aria-describedby={errorId}
-            />
-            <Label htmlFor={`${day}.closesNextDay`}>
-              Closes next day for {dayLabel}
-            </Label>
-          </div>
-        </div>
-      )}
-      {state === "CLOSED" && (
-        <p className="text-xs text-muted-foreground">
-          Choosing Closed explicitly clears any saved times for this day when
-          you save.
-        </p>
-      )}
-      {error && (
-        <p id={`${day}.error`} className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function EvidenceUpload({
-  applicationId,
-  revision,
-  request,
-  disabled,
-  onCommitted,
-  onBusyChange,
-}: {
-  applicationId: string;
-  revision: number;
-  request: NonNullable<api.Draft["documentRequests"]>[number];
-  disabled: boolean;
-  onCommitted: (result: api.UploadResult) => void;
-  onBusyChange: (busy: boolean) => void;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [key, setKey] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
-  const [progress, setProgress] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [processing, setProcessing] = useState<api.ProcessingStatus | null>(
-    null,
-  );
-  const [pollWarning, setPollWarning] = useState("");
-  const [retryingCheck, setRetryingCheck] = useState(false);
-  const processingRetryKey = useRef<string | null>(null);
-  const currentUploadId = request.currentUpload?.id;
-  useEffect(() => {
-    let stopped = false;
-    let timer: number | undefined;
-    let running = false;
-    const poll = async () => {
-      if (stopped || running) return;
-      running = true;
-      try {
-        const statuses = await api.processingStatuses(applicationId);
-        if (!stopped) {
-          setProcessing(
-            statuses.find((item) => item.uploadId === currentUploadId) ?? null,
-          );
-          setPollWarning("");
-        }
-      } catch {
-        if (!stopped)
-          setPollWarning("Status refresh paused; retrying automatically.");
-      } finally {
-        running = false;
-      }
-      if (!stopped) timer = window.setTimeout(poll, 700);
-    };
-    if (currentUploadId) void poll();
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [applicationId, currentUploadId]);
-  async function retryCheck() {
-    if (!request.currentUpload || retryingCheck) return;
-    setRetryingCheck(true);
-    try {
-      const retryKey = processingRetryKey.current ?? crypto.randomUUID();
-      processingRetryKey.current = retryKey;
-      const result = await api.retryProcessing(applicationId, request.currentUpload.id, retryKey);
-      processingRetryKey.current = null;
-      setProcessing(result.status);
-      setPollWarning("");
-    } catch (cause) {
-      setPollWarning((cause as Error).message);
-    } finally {
-      setRetryingCheck(false);
-    }
-  }
-  function choose(next: File | null) {
-    if (disabled || uploading) return;
-    setFile(next);
-    setKey(next ? crypto.randomUUID() : null);
-    setMessage(next ? `${next.name} selected. Not uploaded yet.` : "");
-  }
-  async function upload() {
-    if (!file || uploading) return;
-    const retryKey = key ?? crypto.randomUUID();
-    setKey(retryKey);
-    setUploading(true);
-    onBusyChange(true);
-    setProgress(0);
-    setMessage("Uploading…");
-    try {
-      const result = await api.uploadEvidence(
-        applicationId,
-        request.id,
-        revision,
-        retryKey,
-        file,
-        setProgress,
-      );
-      onCommitted(result);
-      setFile(null);
-      setKey(null);
-      setProgress(100);
-      const currentUpload = result.currentDraft.documentRequests?.find(
-        (item) => item.id === request.id,
-      )?.currentUpload;
-      setMessage(
-        currentUpload && currentUpload.id !== result.upload.id
-          ? `Recovered ${result.upload.filename}; the current file remains ${currentUpload.filename}. Review the current revision.`
-          : `Saved ${result.upload.filename}. Local form edits were not saved or cleared.`,
-      );
-    } catch (cause) {
-      setMessage(
-        `${(cause as Error).message} Choose Retry to safely resend this file.`,
-      );
-    } finally {
-      setUploading(false);
-      onBusyChange(false);
-    }
-  }
-  const inputId = `evidence-${request.id}`;
-  return (
-    <div className="mt-3 min-w-0 space-y-2">
-      {request.currentUpload && (
-        <p className="min-w-0 text-xs">
-          <a
-            className="block max-w-full truncate underline"
-            title={request.currentUpload.filename}
-            target="_blank"
-            rel="noreferrer"
-            href={`/api/applications/${applicationId}/evidence/uploads/${request.currentUpload.id}`}
-          >
-            Open saved {request.currentUpload.filename}
-          </a>{" "}
-          · {(request.currentUpload.byteSize / 1000).toFixed(1)} KB
-        </p>
-      )}
-      {request.currentUpload && (
-        <div
-          className="rounded-md border bg-muted/30 p-2 text-xs"
-          aria-live="polite"
-        >
-          <p className="font-medium">Simulated document check</p>
-          <p>
-            {processing?.state === "COMPLETE"
-              ? "Simulated check complete"
-              : processing?.state === "CHECKING"
-                ? "Checking…"
-                : processing?.state === "ERROR"
-                  ? "Simulated check could not complete"
-                  : "Queued"}
-          </p>
-          {processing?.state === "COMPLETE" && (
-            <p className="text-muted-foreground">
-              Completion does not establish document validity or licensing
-              compliance.
-            </p>
-          )}
-          {processing?.state === "ERROR" && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={disabled || retryingCheck}
-              onClick={retryCheck}
-            >
-              {retryingCheck ? "Retrying…" : "Retry simulated check"}
-            </Button>
-          )}
-          {pollWarning && (
-            <p className="text-muted-foreground">{pollWarning}</p>
-          )}
-        </div>
-      )}
-      {request.applicability === "APPLICABLE" && (
-        <>
-          <div
-            className="rounded-md border border-dashed p-3"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (!disabled && !uploading) {
-                choose(event.dataTransfer.files.item(0));
-              }
-            }}
-          >
-            <Label htmlFor={inputId}>
-              {request.currentUpload ? "Replace evidence" : "Upload evidence"}
-            </Label>
-            <Input
-              id={inputId}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              disabled={disabled || uploading}
-              className="min-w-0 max-w-full"
-              onChange={(event) => choose(event.target.files?.item(0) ?? null)}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              PDF, JPEG, or PNG · maximum 10,000,000 bytes. You can also drop a
-              file here.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!file || disabled || uploading}
-            onClick={upload}
-          >
-            {uploading
-              ? `Uploading ${progress ?? 0}%…`
-              : message.includes("Retry")
-                ? "Retry upload"
-                : request.currentUpload
-                  ? "Replace file"
-                  : "Upload file"}
-          </Button>
-          {progress !== null && (
-            <progress
-              className="w-full"
-              max="100"
-              value={progress}
-              aria-label="Upload progress"
-            />
-          )}
-          {message && (
-            <p
-              role="status"
-              className="break-words text-xs [overflow-wrap:anywhere]"
-            >
-              {message}
-            </p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function OperatorDrafts() {
+function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
   const [drafts, setDrafts] = useState<api.Draft[]>([]);
   const [draft, setDraft] = useState<api.Draft | null>(null);
   const [caseDetail, setCaseDetail] = useState<api.CaseDetail | null>(null);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [reviewRequest, setReviewRequest] = useState(0);
+  const [submissionTarget, setSubmissionTarget] = useState<HTMLDivElement | null>(null);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("Loading your drafts…");
   const [pendingCreateKey, setPendingCreateKey] = useState<string | null>(null);
@@ -622,6 +207,36 @@ function OperatorDrafts() {
   const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const [pendingEvidence, setPendingEvidence] = useState<Record<string, boolean>>({});
+  const [confirmExit, setConfirmExit] = useState(false);
+  const seenNavigation = useRef(navigationRequest);
+  const pendingFileCount = draft?.documentRequests?.filter(
+    (request) => request.applicability === "APPLICABLE" && pendingEvidence[request.id],
+  ).length ?? 0;
+
+  function returnToList() {
+    setDraft(null);
+    setShowWorkflow(false);
+    setCaseDetail(null);
+    setPendingEvidence({});
+    setConfirmExit(false);
+    window.setTimeout(() => document.getElementById("applications-heading")?.focus(), 0);
+  }
+  function requestHome() {
+    if (saving || uploadingEvidence || conflict || workflowBusy) {
+      setStatus("Finish or retry the current action, and resolve saves, uploads or conflicts before leaving.");
+      return;
+    }
+    if (draft && (pendingFileCount || (formRef.current && Object.keys(editsFrom(formRef.current, draft)).length))) {
+      setConfirmExit(true);
+    } else returnToList();
+  }
+  const navigateHome = useEffectEvent(requestHome);
+  useEffect(() => {
+    if (seenNavigation.current === navigationRequest) return;
+    seenNavigation.current = navigationRequest;
+    void Promise.resolve().then(() => navigateHome());
+  }, [navigationRequest]);
 
   useEffect(() => {
     api
@@ -686,24 +301,13 @@ function OperatorDrafts() {
         )
         .map((field) => [field, localValues[field]]),
     );
-    if (base.status !== "DRAFT") {
-      const hours = { ...(base.operatingHours ?? {}) };
-      const local = operations.operatingHours as Record<string, DayHours>;
-      days
-        .filter((day) => canEdit(`operatingHours.${day}`))
-        .forEach((day) => {
-          if (local[day]) hours[day] = local[day];
-          else delete hours[day];
-        });
-      operations.operatingHours = hours;
-    }
     Object.entries(operations).forEach(([field, value]) => {
-      if (field !== "operatingHours" && !canEdit(field)) return;
+      if (!canEdit(field)) return;
       if (
         canonical(value) !==
         canonical(
           base[field as keyof api.Draft] ??
-            (field === "operatingHours" ? {} : []),
+            ([]),
         )
       ) {
         fields[field] = value;
@@ -714,12 +318,14 @@ function OperatorDrafts() {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft) return;
-    if (saving || uploadingEvidence || conflict) return;
+    await saveValues(event.currentTarget);
+  }
+  async function saveValues(form: HTMLFormElement): Promise<boolean> {
+    if (!draft || saving || uploadingEvidence || conflict || workflowBusy) return false;
     setSaving(true);
     setStatus("Saving…");
     setErrors({});
-    const fields = editsFrom(event.currentTarget, draft);
+    const fields = editsFrom(form, draft);
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
@@ -729,15 +335,16 @@ function OperatorDrafts() {
         current.map((item) => (item.id === saved.id ? saved : item)),
       );
       setStatus(
-        `Saved revision ${saved.revision}. Your draft will be available after sign in or reload.`,
+        `Saved revision ${saved.revision}. Next: upload any selected files, then choose Submit application at the bottom.`,
       );
+      return true;
     } catch (cause) {
       const failure = cause as api.ApiError;
       setErrors(failure.fieldErrors ?? {});
       if (failure.status === 400 || failure.status === 422) {
         setStatus(failure.message);
         setSaving(false);
-        return;
+        return false;
       }
       try {
         const latest = await api.getDraft(draft.id);
@@ -754,8 +361,9 @@ function OperatorDrafts() {
             current.map((item) => (item.id === latest.id ? latest : item)),
           );
           setStatus(
-            `Recovered saved revision ${latest.revision} after the response was lost.`,
+            `Recovered saved revision ${latest.revision} after the response was lost. Next: choose Submit application at the bottom.`,
           );
+          return true;
         } else {
           setConflict(latest);
           setConflictBase(draft);
@@ -773,19 +381,30 @@ function OperatorDrafts() {
     } finally {
       setSaving(false);
     }
+    return false;
+  }
+
+  async function reviewSubmission() {
+    if (!draft || saving || uploadingEvidence || conflict || workflowBusy || pendingFileCount) return;
+    if (formRef.current && Object.keys(editsFrom(formRef.current, draft)).length) {
+      if (!await saveValues(formRef.current)) return;
+    }
+    setShowWorkflow(true);
+    setReviewRequest((current) => current + 1);
+    window.setTimeout(() => document.getElementById("application-actions")?.focus(), 0);
   }
 
   if (!draft) {
     return (
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Your applications</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="applications-heading" tabIndex={-1} className="text-lg font-semibold">Your applications</h2>
           <Button onClick={create} disabled={creating}>
             {creating
               ? "Creating…"
               : pendingCreateKey
                 ? "Retry create"
-                : "Create draft"}
+                : "Create application"}
           </Button>
         </div>
         <p role="status" className="text-sm text-muted-foreground">
@@ -797,7 +416,7 @@ function OperatorDrafts() {
               key={item.id}
               variant="outline"
               disabled={saving}
-              className="w-full min-w-0 justify-between overflow-hidden"
+              className="h-auto w-full min-w-0 flex-col items-start justify-between gap-3 overflow-hidden px-4 py-4 text-left sm:flex-row sm:items-center"
               onClick={() => {
                 setDraft(item);
                 setShowWorkflow(item.status !== "DRAFT");
@@ -807,14 +426,14 @@ function OperatorDrafts() {
               }}
             >
               <span
-                className="min-w-0 truncate"
+                className="min-w-0 max-w-full truncate"
                 title={item.legalName || "Untitled draft"}
               >
                 {item.legalName || "Untitled draft"}
               </span>
-              <span className="shrink-0">
-                {statusLabel(item.status, "OPERATOR")} · Revision{" "}
-                {item.revision}
+              <span className="flex max-w-full flex-wrap items-center gap-2">
+                <StatusBadge status={item.status}>{statusLabel(item.status, "OPERATOR")}</StatusBadge>
+                <span className="text-xs text-muted-foreground">Revision {item.revision}</span>
               </span>
             </Button>
           ))}
@@ -826,15 +445,12 @@ function OperatorDrafts() {
   const conflictPreview = conflict
     ? mergeConflictEdits(conflictBase ?? draft, conflict, conflictEdits)
     : null;
-  const conflictLocal = conflictBase
-    ? ({ ...conflictBase, ...conflictEdits } as api.Draft)
-    : null;
 
   const input = (name: DraftField, label: string, required = false) => (
     <div className="space-y-2">
       <Label htmlFor={name}>
         {label}
-        {required ? " (required to submit)" : ""}
+        {required && <><span aria-hidden="true" className="text-status-warning"> *</span><span className="sr-only"> (required to submit)</span></>}
       </Label>
       <Input
         id={name}
@@ -854,12 +470,31 @@ function OperatorDrafts() {
     </div>
   );
 
+  const saveDraftAction = <Button form="application-editor" type="submit" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy}>{saving ? "Saving…" : "Save draft"}</Button>;
+
   return (
-    <div className="space-y-6">
+    <div className="grid items-start gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
+      <nav aria-label="Application sections" className="flex flex-wrap gap-2 border-b pb-4 lg:sticky lg:top-28 lg:flex-col lg:border-b-0 lg:border-r lg:pr-6">
+        <p className="mb-2 w-full font-medium">Application sections</p>
+        {["Business", "Applicant", "Premises", "Operations", "Evidence"].map((section) => <a key={section} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-ring" href={`#application-${section.toLowerCase()}`}>{section}</a>)}
+      </nav>
+      <div className="flex min-w-0 flex-col gap-8">
+      <AlertDialog open={confirmExit} onOpenChange={setConfirmExit}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Leave unsaved changes?</AlertDialogTitle><AlertDialogDescription>Your saved application and uploaded files will remain. Unsaved field changes and files selected but not uploaded will be discarded.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction onClick={returnToList}>Discard unsaved changes</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {showWorkflow && (
         <CasePanel
           id={draft.id}
           role="OPERATOR"
+          refreshRequest={reviewRequest}
+          workingRevision={draft.revision}
+          submissionTarget={submissionTarget}
+          submissionBlocked={saving || uploadingEvidence || !!conflict || !!pendingFileCount}
+          saveAction={saveDraftAction}
+          onActivityChange={setWorkflowBusy}
           beforeCommand={(latest) => {
             if (latest.revision !== draft.revision)
               throw new Error(
@@ -903,11 +538,12 @@ function OperatorDrafts() {
       )}
       <form
         ref={formRef}
+        id="application-editor"
         key={editorGeneration}
         className="space-y-6"
         onSubmit={save}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">
               {draft.status === "DRAFT"
@@ -922,11 +558,17 @@ function OperatorDrafts() {
             type="button"
             variant="outline"
             disabled={saving || !!conflict}
-            onClick={() => setDraft(null)}
+            onClick={requestHome}
           >
-            All drafts
+            All applications
           </Button>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">1. Add details and upload files. 2. Save draft. 3. Submit at the bottom.</p>
+
+        </div>
+        <p role="status" className="text-sm text-muted-foreground">{status}</p>
+        {!!pendingFileCount && <Alert><AlertTitle>Upload your selected files</AlertTitle><AlertDescription>{pendingFileCount} selected file(s) have not been uploaded. Use Upload file or Replace file in Evidence before reviewing for submission. Saving draft keeps your selection while this page stays open.</AlertDescription></Alert>}
         {conflict && (
           <Alert role="alert">
             <AlertTitle>Saved draft changed</AlertTitle>
@@ -971,28 +613,9 @@ function OperatorDrafts() {
                     {describeSelection(conflictPreview?.serviceModes)}
                   </dd>
                 </div>
-                <div className="sm:col-span-2">
-                  <dt className="font-medium">Opening hours</dt>
-                  <dd>
-                    <strong>Original:</strong>{" "}
-                    {describeHours(conflictBase?.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>Saved:</strong>{" "}
-                    {describeHours(conflict.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>Your complete local edit:</strong>{" "}
-                    {describeHours(conflictLocal?.operatingHours)}
-                  </dd>
-                  <dd>
-                    <strong>After keeping edits:</strong>{" "}
-                    {describeHours(conflictPreview?.operatingHours)}
-                  </dd>
-                </div>
               </dl>
               <p className="mb-4 text-xs text-muted-foreground">
-                Keep and review applies only your changed selections and hour
+                Keep and review applies only your changed selections and field
                 values over the latest saved revision. If both tabs changed the
                 same value, your explicit choice keeps your local value for
                 review before saving.
@@ -1044,14 +667,47 @@ function OperatorDrafts() {
             </AlertDescription>
           </Alert>
         )}
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Business</legend>
+        <p className="text-sm text-muted-foreground"><span className="text-status-warning">*</span> Required for submission. Save an incomplete draft at any time.</p>
+        <section
+          aria-labelledby="progress-heading"
+          className="space-y-3 rounded-md border p-4"
+        >
+          <h3 id="progress-heading" className="font-medium">
+            Saved completion: {draft.completion?.completed ?? 0} of{" "}
+            {draft.completion?.required ?? 0} (
+            {draft.completion?.percentage ?? 0}
+            %)
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Progress reflects the last saved revision, including ready evidence
+            files. The total includes two declarations confirmed at submission.
+          </p>
+          <p className="text-sm font-medium">
+            {(draft.completion?.unmetItemIds ?? []).filter((id) => !id.startsWith("declaration.")).length} required details or files remain.
+          </p>
+          <ul className="list-inside list-disc text-sm">
+            {(draft.completion?.unmetItemIds ?? []).filter((id) => !id.startsWith("declaration.")).map((id) => (
+              <li key={id}>
+                <a
+                  className="underline"
+                  href={`#${id}`}
+                  onClick={() => window.setTimeout(() => focusUnmet(id), 0)}
+                >
+                  {unmetLabel(draft, id)}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="text-sm text-muted-foreground">Confirm accuracy and authority at the bottom before submitting. These declarations are not missing draft fields.</p>
+        </section>
+        <fieldset id="application-business" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Business</legend>
           {input("legalName", "Legal name", true)}
           {input("tradingName", "Trading name")}
           {input("registrationNumber", "Registration number", true)}
           <div className="space-y-2">
             <Label htmlFor="structure">
-              Business structure (required to submit)
+              Business structure <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
             </Label>
             <NativeSelect
               id="structure"
@@ -1085,11 +741,11 @@ function OperatorDrafts() {
             )}
           </div>
         </fieldset>
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Applicant</legend>
+        <fieldset id="application-applicant" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Applicant</legend>
           {input("applicantName", "Name", true)}
           <div className="space-y-2">
-            <Label htmlFor="applicantRole">Role (required to submit)</Label>
+            <Label htmlFor="applicantRole">Role <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></Label>
             <NativeSelect
               id="applicantRole"
               name="applicantRole"
@@ -1121,13 +777,13 @@ function OperatorDrafts() {
           {input("applicantEmail", "Contact email", true)}
           {input("applicantPhone", "Phone", true)}
         </fieldset>
-        <fieldset className="grid gap-4 sm:grid-cols-2">
-          <legend className="mb-3 font-medium">Premises</legend>
+        <fieldset id="application-premises" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="mb-3 text-lg font-semibold">Premises</legend>
           {input("premisesAddress", "Address", true)}
           {input("premisesName", "Premises name")}
           <div className="space-y-2">
             <Label htmlFor="unitApplicable">
-              Does the premises have a unit number?
+              Does the premises have a unit number? <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
             </Label>
             <NativeSelect
               id="unitApplicable"
@@ -1157,14 +813,15 @@ function OperatorDrafts() {
           <div>
             {input(
               "unitNumber",
-              "Unit number (required to submit when applicable)",
+              "Unit number",
+              draft.unitApplicable === true,
             )}
             <p className="mt-2 text-xs text-muted-foreground">
               If you choose no unit, clear a retained unit number before saving.
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tenure">Tenure (required to submit)</Label>
+            <Label htmlFor="tenure">Tenure <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></Label>
             <NativeSelect
               id="tenure"
               name="tenure"
@@ -1187,12 +844,12 @@ function OperatorDrafts() {
             )}
           </div>
         </fieldset>
-        <fieldset className="space-y-4">
-          <legend className="font-medium">Operations</legend>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <fieldset id="application-operations" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
+          <legend className="text-lg font-semibold">Operations</legend>
+          <div className="flex flex-col gap-5">
             <div className="space-y-2">
               <Label htmlFor="businessType">
-                Business type (required to submit)
+                Business type <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </Label>
               <NativeSelect
                 id="businessType"
@@ -1227,7 +884,7 @@ function OperatorDrafts() {
               true,
             )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-5">
             <fieldset
               id="preparationActivities"
               aria-describedby={
@@ -1237,7 +894,7 @@ function OperatorDrafts() {
               }
             >
               <legend className="mb-2 text-sm font-medium">
-                Preparation activities (choose at least one)
+                Preparation activities (choose at least one) <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </legend>
               {activities.map((value) => (
                 <div key={value} className="flex items-center gap-2 py-1">
@@ -1275,7 +932,7 @@ function OperatorDrafts() {
               }
             >
               <legend className="mb-2 text-sm font-medium">
-                Service modes (choose at least one)
+                Service modes (choose at least one) <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </legend>
               {modes.map((value) => (
                 <div key={value} className="flex items-center gap-2 py-1">
@@ -1302,54 +959,9 @@ function OperatorDrafts() {
               )}
             </fieldset>
           </div>
-          <fieldset className="space-y-3">
-            <legend className="font-medium">Opening hours</legend>
-            {days.map((day) => (
-              <DayHoursFields
-                key={day}
-                day={day}
-                initial={
-                  (editDefaults?.operatingHours ?? draft.operatingHours ?? {})[
-                    day
-                  ]
-                }
-                disabled={
-                  saving || !!conflict || !canEdit(`operatingHours.${day}`)
-                }
-                error={errors[`operatingHours.${day}`]}
-              />
-            ))}
-          </fieldset>
         </fieldset>
-        <section
-          aria-labelledby="progress-heading"
-          className="space-y-3 rounded-md border p-4"
-        >
-          <h3 id="progress-heading" className="font-medium">
-            Saved completion: {draft.completion?.completed ?? 0} of{" "}
-            {draft.completion?.required ?? 0} (
-            {draft.completion?.percentage ?? 0}
-            %)
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Progress reflects the last saved revision, including ready evidence
-            files.
-          </p>
-          <ul className="list-inside list-disc text-sm">
-            {(draft.completion?.unmetItemIds ?? []).map((id) => (
-              <li key={id}>
-                <a
-                  className="underline"
-                  href={`#${id}`}
-                  onClick={() => window.setTimeout(() => focusUnmet(id), 0)}
-                >
-                  {unmetLabel(draft, id)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section aria-labelledby="requirements-heading" className="space-y-3">
+      </form>
+        <section id="application-evidence" tabIndex={-1} aria-labelledby="requirements-heading" className="flex scroll-mt-36 flex-col gap-4 border-t pt-6">
           <div>
             <h3 id="requirements-heading" className="font-medium">
               Evidence requirements
@@ -1360,7 +972,7 @@ function OperatorDrafts() {
               edits.
             </p>
           </div>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="flex flex-col gap-4">
             {(draft.documentRequests ?? []).map((request) => (
               <li
                 id={`documentRequest.${request.id}`}
@@ -1372,13 +984,13 @@ function OperatorDrafts() {
                 <p className="font-medium">
                   {documentRequestLabel(request.type)}
                 </p>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                <Badge variant={request.applicability === "NEEDS_INPUT" ? "warning" : request.applicability === "APPLICABLE" ? "info" : "secondary"}>
                   {request.applicability === "NEEDS_INPUT"
                     ? "More information needed"
                     : request.applicability === "APPLICABLE"
                       ? "Required"
                       : "Not required"}
-                </p>
+                </Badge>
                 <p className="mt-1 text-muted-foreground">{request.reason}</p>
                 <EvidenceUpload
                   applicationId={draft.id}
@@ -1387,10 +999,12 @@ function OperatorDrafts() {
                   disabled={
                     saving ||
                     uploadingEvidence ||
+                    workflowBusy ||
                     !!conflict ||
                     !canEdit(request.id)
                   }
                   onBusyChange={setUploadingEvidence}
+                  onPendingChange={(pending) => setPendingEvidence((current) => ({ ...current, [request.id]: pending }))}
                   onCommitted={(result) => {
                     const current = result.currentDraft;
                     const localEdits = formRef.current
@@ -1420,35 +1034,10 @@ function OperatorDrafts() {
             ))}
           </ul>
         </section>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={saving || uploadingEvidence || !!conflict}
-          onClick={() => setShowWorkflow(true)}
-        >
-          Submission and history
-        </Button>
-        <section aria-labelledby="declarations-heading" className="space-y-2">
-          <h3 id="declarations-heading" className="font-medium">
-            Declarations
-          </h3>
-          <p id="declaration.accuracy" tabIndex={-1} className="text-sm">
-            Accuracy: You will confirm these when submitting.
-          </p>
-          <p id="declaration.authority" tabIndex={-1} className="text-sm">
-            Authority: You will confirm these when submitting.
-          </p>
-        </section>
-        <p role="status" className="text-sm text-muted-foreground">
-          {status}
-        </p>
-        <Button
-          type="submit"
-          disabled={saving || uploadingEvidence || !!conflict}
-        >
-          {saving ? "Saving…" : "Save draft"}
-        </Button>
-      </form>
+        <div id="application-actions" ref={setSubmissionTarget} tabIndex={-1} role="region" aria-label="Application actions" className="scroll-mt-24">
+          {!showWorkflow && <div className="flex gap-3">{saveDraftAction}<Button type="button" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>Submit application</Button></div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1457,6 +1046,7 @@ export default function App() {
   const [user, setUser] = useState<api.User | null>(null);
   const [workspace, setWorkspace] = useState<api.Workspace | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [navigationRequest, setNavigationRequest] = useState(0);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1527,12 +1117,25 @@ export default function App() {
     );
   }
 
+  if (user) {
+    return (
+      <WorkspaceShell user={user} heading={workspace?.heading ?? "Workspace"} error={error} signingOut={submitting} onSignOut={signOut} onHome={() => setNavigationRequest((current) => current + 1)}>
+        {workspaceLoading ? (
+          <p role="status" className="text-muted-foreground">Loading workspace…</p>
+        ) : workspace ? (
+          <div className="flex flex-col gap-8">
+            <p className="text-muted-foreground">{workspace.message}</p>
+            {user.role === "OPERATOR" ? <OperatorDrafts navigationRequest={navigationRequest} /> : <OfficerCases navigationRequest={navigationRequest} />}
+          </div>
+        ) : <Button variant="outline" onClick={() => loadWorkspace(user)}>Retry workspace</Button>}
+      </WorkspaceShell>
+    );
+  }
+
   return (
     <main className="grid min-h-svh place-items-center bg-background p-4 sm:p-8">
       <Card
-        className={`w-full ${
-          user ? "max-w-4xl" : "max-w-md"
-        } border-border bg-card shadow-2xl`}
+        className="w-full max-w-md border-border bg-card"
       >
         <CardHeader>
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -1540,13 +1143,11 @@ export default function App() {
           </p>
           <CardTitle>
             <h1 className="text-2xl">
-              {user ? (workspace?.heading ?? "Workspace") : "Sign in"}
+              Sign in
             </h1>
           </CardTitle>
           <CardDescription>
-            {user
-              ? `Signed in as ${user.username} · ${user.role.toLowerCase()}`
-              : "Use your development operator or officer account."}
+            Use your development operator or officer account.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1557,39 +1158,6 @@ export default function App() {
             </Alert>
           )}
 
-          {user ? (
-            <div className="space-y-5">
-              {workspaceLoading ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Loading workspace…
-                </p>
-              ) : workspace ? (
-                user.role === "OPERATOR" ? (
-                  <>
-                    <p className="text-sm leading-6">{workspace.message}</p>
-                    <OperatorDrafts />
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm leading-6">{workspace.message}</p>
-                    <OfficerCases />
-                  </>
-                )
-              ) : (
-                <Button variant="outline" onClick={() => loadWorkspace(user)}>
-                  Retry workspace
-                </Button>
-              )}
-              {workspace && <Notifications />}
-              <Button
-                className="w-full"
-                onClick={signOut}
-                disabled={submitting}
-              >
-                {submitting ? "Signing out…" : "Sign out"}
-              </Button>
-            </div>
-          ) : (
             <form className="space-y-4" onSubmit={signIn}>
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
@@ -1615,7 +1183,6 @@ export default function App() {
                 {submitting ? "Signing in…" : "Sign in"}
               </Button>
             </form>
-          )}
         </CardContent>
       </Card>
     </main>

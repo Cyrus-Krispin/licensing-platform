@@ -1,11 +1,17 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/StatusBadge";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -51,20 +57,7 @@ const fieldLabels: Record<string, string> = {
   proposedOpeningDate: "Proposed opening date",
   preparationActivities: "Preparation activities",
   serviceModes: "Service modes",
-  ...Object.fromEntries(
-    [
-      "MONDAY",
-      "TUESDAY",
-      "WEDNESDAY",
-      "THURSDAY",
-      "FRIDAY",
-      "SATURDAY",
-      "SUNDAY",
-    ].map((day) => [
-      `operatingHours.${day}`,
-      `${day[0]}${day.slice(1).toLowerCase()} hours`,
-    ]),
-  ),
+
 };
 function display(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not set";
@@ -148,14 +141,14 @@ function Snapshot({
         {new Date(version.submittedAt).toLocaleString()} · Accuracy and
         authority confirmed
       </p>
-      <dl className="grid gap-3 sm:grid-cols-2">
+      <dl className="flex flex-col divide-y">
         {Object.entries(fieldLabels).map(([path, label]) => {
           const current = valueAt(version.snapshot, path);
           const previous = prior ? valueAt(prior.snapshot, path) : undefined;
           const changed =
             prior && JSON.stringify(current) !== JSON.stringify(previous);
           return (
-            <div key={path} className="min-w-0 rounded-md border p-3 text-sm">
+            <div key={path} id={`submitted-${path}`} tabIndex={-1} className="min-w-0 scroll-mt-36 py-4 text-sm">
               <dt className="font-medium">
                 {label}
                 {changed ? " · Changed" : ""}
@@ -178,7 +171,7 @@ function Snapshot({
             (item) => item.id === request.id,
           )?.currentUpload;
           return (
-            <li key={request.id} className="rounded-md border p-3 text-sm">
+            <li key={request.id} id={`submitted-documentRequest.${request.id}`} tabIndex={-1} className="scroll-mt-36 border-t py-4 text-sm">
               <p>
                 {display(request.type)} ·{" "}
                 {request.applicability === "APPLICABLE"
@@ -216,18 +209,49 @@ function Snapshot({
   );
 }
 
+function SavedApplicationReview({ detail }: { detail: api.CaseDetail }) {
+  const draft = detail.working;
+  if (!draft) return null;
+  return (
+    <section className="flex flex-col gap-4" aria-label="Review saved application">
+      <h3 className="font-semibold">Review saved application</h3>
+      <p className="text-sm text-muted-foreground">These are your saved details and uploaded files. Review them, then confirm the declarations and submit. Saving a draft does not submit it.</p>
+      <a href="#application-business" className="text-sm underline">Back to application details</a>
+      <dl className="flex flex-col divide-y">
+        {Object.entries(fieldLabels).map(([path, label]) => <div key={path} className="min-w-0 py-3 text-sm"><dt className="font-medium">{label}</dt><dd className="break-words">{display(valueAt(draft, path))}</dd></div>)}
+      </dl>
+      <h4 className="font-medium">Saved evidence</h4>
+      <ul className="flex flex-col gap-3">
+        {draft.documentRequests?.filter((item) => item.applicability === "APPLICABLE").map((item) => <li key={item.id} className="text-sm"><p>{display(item.type)}</p>{item.currentUpload ? <a className="break-words underline" href={`/api/applications/${detail.id}/evidence/uploads/${item.currentUpload.id}`} target="_blank" rel="noreferrer">{item.currentUpload.filename}</a> : <p className="text-status-warning">No saved file yet</p>}</li>)}
+      </ul>
+    </section>
+  );
+}
+
 export function CasePanel({
   id,
   role,
   beforeCommand,
   onChanged,
   onDetail,
+  refreshRequest = 0,
+  onActivityChange,
+  workingRevision,
+  submissionTarget,
+  saveAction,
+  submissionBlocked = false,
 }: {
   id: string;
   role: api.User["role"];
   beforeCommand?: (latest: api.CaseDetail) => void;
   onChanged?: (detail: api.CaseDetail) => void;
   onDetail?: (detail: api.CaseDetail) => void;
+  refreshRequest?: number;
+  onActivityChange?: (active: boolean) => void;
+  workingRevision?: number;
+  submissionTarget?: HTMLElement | null;
+  saveAction?: ReactNode;
+  submissionBlocked?: boolean;
 }) {
   const [detail, setDetail] = useState<api.CaseDetail | null>(null);
   const [error, setError] = useState("");
@@ -243,29 +267,43 @@ export function CasePanel({
   const [message, setMessage] = useState("");
   const [issueKind, setIssueKind] = useState("FIELD");
   const inFlight = useRef(false);
+  const loadGeneration = useRef(0);
   const onDetailRef = useRef(onDetail);
   useEffect(() => {
     onDetailRef.current = onDetail;
   }, [onDetail]);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const current = await api.getCase(id);
+      if (generation !== loadGeneration.current) return;
       setDetail(current);
+      setAccuracy(false);
+      setAuthority(false);
       onDetailRef.current?.(current);
       setError("");
     } catch (cause) {
-      setError((cause as Error).message);
+      if (generation === loadGeneration.current) setError((cause as Error).message);
     }
   }, [id]);
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load]);
+  }, [load, refreshRequest]);
+  const synchronizeWorking = useEffectEvent(() => {
+    if (detail && workingRevision !== undefined && detail.revision !== workingRevision) void load();
+  });
+  useEffect(() => {
+    void Promise.resolve().then(() => synchronizeWorking());
+  }, [workingRevision, detail?.revision]);
+  useEffect(() => {
+    void Promise.resolve().then(() => onActivityChange?.(busy || !!pending));
+  }, [busy, pending, onActivityChange]);
   async function command(
     name: string,
     fields: Record<string, unknown>,
     retry = false,
   ) {
-    if (!detail || inFlight.current) return;
+    if (!detail || inFlight.current || (workingRevision !== undefined && detail.revision !== workingRevision)) return;
     inFlight.current = true;
     setBusy(true);
     setError("");
@@ -273,7 +311,7 @@ export function CasePanel({
     try {
       if (!request) {
         const base = await api.getCase(id);
-        if (role === "OFFICER" && (
+        if ((
           base.revision !== detail.revision ||
           base.latestVersion !== detail.latestVersion ||
           base.status !== detail.status
@@ -290,6 +328,7 @@ export function CasePanel({
         request.fields,
         request.key,
       );
+      loadGeneration.current++;
       setDetail(result);
       setPending(null);
       setAccuracy(false);
@@ -327,22 +366,40 @@ export function CasePanel({
   }
   if (!detail)
     return (
-      <section className="space-y-3">
+      <>
+      <section id="application-workflow" tabIndex={-1} className="space-y-3">
         <p role="status">{error || "Loading application…"}</p>
         <Button type="button" variant="outline" onClick={load}>
           Retry application
         </Button>
       </section>
+      {submissionTarget && createPortal(saveAction, submissionTarget)}
+      </>
     );
   const operatorRound =
     role === "OPERATOR" && detail.status === "PENDING_PRE_SITE_RESUBMISSION";
   const reviewing = role === "OFFICER" && detail.status === "UNDER_REVIEW";
   const latest = detail.versions.at(-1)?.snapshot;
+  const unmetSavedItems = detail.working?.completion?.unmetItemIds.filter((item) => !item.startsWith("declaration.")) ?? [];
+  const synchronizing = workingRevision !== undefined && detail.revision !== workingRevision;
+  const submission = role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) ? (
+    <section className="space-y-3 border-t pt-6" aria-label="Submission declarations">
+      <h3 className="font-medium">{operatorRound ? "Resubmit corrections" : "Submit application"}</h3>
+      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href="#application-workflow">Review saved details</a>, then confirm both declarations afresh.</p>
+      {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence, then save.</AlertDescription></Alert>}
+      <div className="flex items-center gap-2"><Checkbox id="accuracy" checked={accuracy} onCheckedChange={(value) => setAccuracy(value === true)} /><Label htmlFor="accuracy">I confirm this application is accurate.</Label></div>
+      <div className="flex items-center gap-2"><Checkbox id="authority" checked={authority} onCheckedChange={(value) => setAuthority(value === true)} /><Label htmlFor="authority">I am authorised to apply for this business.</Label></div>
+      <div className="flex gap-3" aria-label="Save and submit actions">
+        {saveAction}
+        <Button type="button" disabled={busy || synchronizing || submissionBlocked || !!pending || !accuracy || !authority || !!unmetSavedItems.length} onClick={() => command(operatorRound ? "resubmit" : "submit", { accuracy, authority })}>{operatorRound ? "Resubmit application" : "Submit application"}</Button>
+      </div>
+    </section>
+  ) : saveAction;
   return (
-    <section className="space-y-6" aria-label="Application workflow">
+    <section id="application-workflow" tabIndex={-1} className="scroll-mt-36 space-y-6" aria-label="Application workflow">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
-          {statusLabel(detail.status, role)} · Version {detail.latestVersion}
+          <StatusBadge status={detail.status}>{statusLabel(detail.status, role)}</StatusBadge> <span className="ml-2 text-sm text-muted-foreground">{detail.status === "DRAFT" ? `Saved revision ${detail.revision}` : `· Version ${detail.latestVersion}`}</span>
         </h2>
         <Button type="button" variant="outline" disabled={busy} onClick={load}>
           Refresh case history
@@ -380,10 +437,10 @@ export function CasePanel({
           {detail.issues.map((item) => (
             <div
               key={item.id}
-              className="space-y-2 rounded-md border p-4 text-sm"
+              className="space-y-3 border-t py-4 text-sm"
             >
               <p className="font-medium">
-                Round {item.round} · {item.state} ·{" "}
+                Round {item.round} · <Badge variant={item.state === "RESOLVED" ? "success" : item.state === "OPEN" ? "warning" : item.state === "AWAITING_REVIEW" ? "info" : "secondary"}>{display(item.state)}</Badge> ·{" "}
                 {fieldLabels[item.target ?? ""] ??
                   item.title ??
                   display(item.kind)}
@@ -392,7 +449,7 @@ export function CasePanel({
               {item.target && (
                 <a
                   className="underline"
-                  href={`#${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
+                  href={`#${role === "OFFICER" ? "submitted-" : ""}${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
                 >
                   Go to requested {item.kind === "FIELD" ? "field" : "document"}
                 </a>
@@ -418,14 +475,14 @@ export function CasePanel({
                   <Label htmlFor={`response-${item.id}`}>
                     Response to this request
                   </Label>
-                  <Input
+                  <Textarea
                     id={`response-${item.id}`}
                     name="response"
                     required
                     maxLength={2000}
                     defaultValue={item.response ?? ""}
                   />
-                  <Button type="submit" size="sm" disabled={busy || !!pending}>
+                  <Button type="submit" size="sm" disabled={busy || synchronizing || !!pending}>
                     Save response
                   </Button>
                 </form>
@@ -435,7 +492,7 @@ export function CasePanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={busy || !!pending}
+                  disabled={busy || synchronizing || !!pending}
                   onClick={() => command("delete-issue", { issueId: item.id })}
                 >
                   Remove unpublished request
@@ -455,7 +512,7 @@ export function CasePanel({
                   <Label htmlFor={`reissue-${item.id}`}>
                     Further correction explanation
                   </Label>
-                  <Input
+                  <Textarea
                     id={`reissue-${item.id}`}
                     name="text"
                     required
@@ -465,7 +522,7 @@ export function CasePanel({
                     type="submit"
                     size="sm"
                     variant="outline"
-                    disabled={busy || !!pending}
+                    disabled={busy || synchronizing || !!pending}
                   >
                     Request further correction next round
                   </Button>
@@ -476,7 +533,7 @@ export function CasePanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={busy || !!pending}
+                  disabled={busy || synchronizing || !!pending}
                   onClick={() => command("resolve", { issueId: item.id })}
                 >
                   Confirm resolution
@@ -486,59 +543,16 @@ export function CasePanel({
           ))}
         </section>
       )}
-      {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && (
-        <section
-          className="space-y-3 rounded-md border p-4"
-          aria-label="Submission declarations"
-        >
-          <h3 className="font-medium">
-            {operatorRound ? "Resubmit corrections" : "Submit application"}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Save your field changes and finish uploads first. Confirm both
-            declarations afresh for this submission.
-          </p>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="accuracy"
-              checked={accuracy}
-              onCheckedChange={(value) => setAccuracy(value === true)}
-            />
-            <Label htmlFor="accuracy">
-              I confirm this application is accurate.
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="authority"
-              checked={authority}
-              onCheckedChange={(value) => setAuthority(value === true)}
-            />
-            <Label htmlFor="authority">
-              I am authorised to apply for this business.
-            </Label>
-          </div>
-          <Button
-            type="button"
-            disabled={busy || !!pending || !accuracy || !authority}
-            onClick={() =>
-              command(operatorRound ? "resubmit" : "submit", {
-                accuracy,
-                authority,
-              })
-            }
-          >
-            {operatorRound ? "Resubmit application" : "Submit application"}
-          </Button>
-        </section>
-      )}
+      {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && <SavedApplicationReview detail={detail} />}
+      {role === "OPERATOR" && ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(detail.status) && <Alert><AlertTitle>{detail.status === "APPLICATION_RECEIVED" ? "Application submitted" : "Corrections resubmitted"}</AlertTitle><AlertDescription>Your submission has been received. There is nothing more to submit now; an officer will review it. Check this application or the notification bell for updates.</AlertDescription></Alert>}
+      {submissionTarget ? createPortal(submission, submissionTarget) : submission}
       {role === "OFFICER" &&
         ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(
           detail.status,
         ) && (
           <Button
             type="button"
-            disabled={busy || !!pending}
+            disabled={busy || synchronizing || !!pending}
             onClick={() => command("start-review", {})}
           >
             Start review
@@ -547,7 +561,7 @@ export function CasePanel({
       {reviewing && (
         <section className="space-y-4" aria-label="Review actions">
           <h3 className="font-medium">Review actions</h3>
-          <form className="space-y-3 rounded-md border p-4" onSubmit={issue}>
+          <form className="space-y-3 border-t pt-6" onSubmit={issue}>
             <Label htmlFor="issue-kind">Correction kind</Label>
             <NativeSelect
               id="issue-kind"
@@ -590,8 +604,8 @@ export function CasePanel({
             </Label>
             <Input id="issue-title" name="title" maxLength={200} />
             <Label htmlFor="issue-text">Correction explanation</Label>
-            <Input id="issue-text" name="text" required maxLength={2000} />
-            <Button type="submit" disabled={busy || !!pending}>
+            <Textarea id="issue-text" name="text" required maxLength={2000} />
+            <Button type="submit" disabled={busy || synchronizing || !!pending}>
               Save review request
             </Button>
           </form>
@@ -614,7 +628,7 @@ export function CasePanel({
             Publish fixed correction round
           </Button>
           <form
-            className="space-y-3 rounded-md border p-4"
+            className="space-y-3 border-t pt-6"
             onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
@@ -632,26 +646,26 @@ export function CasePanel({
             <Label htmlFor="decision-explanation">
               Decision explanation (required)
             </Label>
-            <Input
+            <Textarea
               id="decision-explanation"
               name="explanation"
               required
               maxLength={2000}
             />
-            <Button type="submit" disabled={busy || !!pending}>
+            <Button type="submit" disabled={busy || synchronizing || !!pending}>
               Record final decision
             </Button>
           </form>
         </section>
       )}
-      <Snapshot detail={detail} role={role} />
+      {detail.status !== "DRAFT" && <Snapshot detail={detail} role={role} />}
       <section className="space-y-3" aria-label="Application history">
         <h3 className="font-medium">Application history</h3>
         <ol className="space-y-2">
           {detail.events.map((event) => (
             <li
               key={event.id}
-              className="break-words rounded-md border p-3 text-sm"
+              className="break-words border-l-2 py-3 pl-4 text-sm"
             >
               <p className="font-medium">
                 {display(event.type)} · {event.actor} · Version{" "}
@@ -676,9 +690,10 @@ export function CasePanel({
   );
 }
 
-export function OfficerCases() {
+export function OfficerCases({ navigationRequest = 0 }: { navigationRequest?: number } = {}) {
   const [cases, setCases] = useState<api.CaseSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -692,11 +707,18 @@ export function OfficerCases() {
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
+  const seenNavigation = useRef(navigationRequest);
+  useEffect(() => {
+    if (seenNavigation.current === navigationRequest) return;
+    seenNavigation.current = navigationRequest;
+    void Promise.resolve().then(() => { if (workflowBusy) { setError("Finish or retry the current action before returning to the queue."); return; } setSelected(null); return load(); });
+  }, [navigationRequest, load, workflowBusy]);
   if (selected)
     return (
       <div className="space-y-4">
         <Button
           variant="outline"
+          disabled={workflowBusy}
           onClick={() => {
             setSelected(null);
             void load();
@@ -704,7 +726,8 @@ export function OfficerCases() {
         >
           All cases
         </Button>
-        <CasePanel id={selected} role="OFFICER" />
+        {error && <p role="alert">{error}</p>}
+        <CasePanel id={selected} role="OFFICER" onActivityChange={setWorkflowBusy} />
       </div>
     );
   return (
@@ -743,15 +766,14 @@ export function OfficerCases() {
             <li key={item.id}>
               <Button
                 variant="outline"
-                className="h-auto w-full justify-between gap-3 whitespace-normal text-left"
+                className="h-auto w-full flex-col items-start justify-between gap-3 whitespace-normal px-4 py-4 text-left sm:flex-row sm:items-center"
                 onClick={() => setSelected(item.id)}
               >
                 <span className="min-w-0 break-words">
                   {item.legalName ?? "Untitled application"}
                 </span>
                 <span>
-                  {statusLabel(item.status, "OFFICER")} · Version{" "}
-                  {item.latestVersion}
+                  <StatusBadge status={item.status}>{statusLabel(item.status, "OFFICER")}</StatusBadge> <span className="text-xs text-muted-foreground">Version {item.latestVersion}</span>
                 </span>
               </Button>
             </li>
@@ -760,56 +782,4 @@ export function OfficerCases() {
     </section>
   );
 }
-export function Notifications() {
-  const [items, setItems] = useState<api.Notification[]>([]);
-  const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    try {
-      setItems(await api.notifications());
-      setError("");
-    } catch (cause) {
-      setError((cause as Error).message);
-    }
-  }, []);
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
-  return (
-    <section className="space-y-3 border-t pt-4" aria-label="Notifications">
-      <h2 className="font-semibold">
-        Notifications · {items.filter((item) => !item.readAt).length} unread
-      </h2>
-      <Button variant="outline" onClick={load}>
-        Refresh notifications
-      </Button>
-      {error && <p role="alert">{error}</p>}
-      <ul className="space-y-2">
-        {items.map((item) => (
-          <li key={item.id} className="rounded-md border p-3 text-sm">
-            <p>{item.message}</p>
-            <p className="text-muted-foreground">
-              {new Date(item.createdAt).toLocaleString()} ·{" "}
-              {item.readAt ? "Read" : "Unread"}
-            </p>
-            {!item.readAt && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await api.readNotification(item.id);
-                    await load();
-                  } catch (cause) {
-                    setError((cause as Error).message);
-                  }
-                }}
-              >
-                Mark as read
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
+export { Notifications } from "@/Notifications";

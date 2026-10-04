@@ -15,6 +15,7 @@ vi.mock("./lib/api", async (importOriginal) => ({
   listCases: vi.fn(),
   notifications: vi.fn(),
   readNotification: vi.fn(),
+  clearNotifications: vi.fn(),
 }));
 const draft: api.Draft = {
   id: "case",
@@ -388,7 +389,7 @@ test("all statuses stay in the officer queue and filters preserve cases", async 
       updatedAt: "2026-10-04T00:00:00Z",
     })),
   );
-  render(<OfficerCases />);
+  const { rerender } = render(<OfficerCases navigationRequest={0} />);
   await screen.findByText("6 applications");
   await user.selectOptions(
     screen.getByLabelText("Application status"),
@@ -401,38 +402,26 @@ test("all statuses stay in the officer queue and filters preserve cases", async 
   await screen.findByRole("button", { name: "All cases" });
   await user.click(screen.getByRole("button", { name: "All cases" }));
   await screen.findByText("6 applications");
+  await user.click(screen.getByRole("button", { name: /Cafe 0/ }));
+  await screen.findByRole("button", { name: "All cases" });
+  rerender(<OfficerCases navigationRequest={1} />);
+  await screen.findByText("6 applications");
+  expect(screen.queryByRole("button", { name: "All cases" })).not.toBeInTheDocument();
   expect(statusLabel("APPLICATION_RECEIVED", "OPERATOR")).toBe("Submitted");
 });
 test("notifications persist and mark read through the API", async () => {
   const user = userEvent.setup();
-  vi.mocked(api.notifications)
-    .mockResolvedValueOnce([
-      {
-        id: "notice",
-        applicationId: "case",
-        message: "Under Review",
-        createdAt: "2026-10-04T00:00:00Z",
-        readAt: null,
-      },
-    ])
-    .mockResolvedValue([
-      {
-        id: "notice",
-        applicationId: "case",
-        message: "Under Review",
-        createdAt: "2026-10-04T00:00:00Z",
-        readAt: "2026-10-04T00:01:00Z",
-      },
-    ]);
+  const notice = { id: "notice", applicationId: "case", message: "Under Review", createdAt: "2026-10-04T00:00:00Z", readAt: null };
+  vi.mocked(api.notifications).mockResolvedValue([notice]);
   vi.mocked(api.readNotification).mockResolvedValue();
   render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  vi.mocked(api.notifications).mockResolvedValue([{ ...notice, readAt: "2026-10-04T00:01:00Z" }]);
   await user.click(await screen.findByRole("button", { name: "Mark as read" }));
   await screen.findByText("Notifications · 0 unread");
   expect(api.readNotification).toHaveBeenCalledWith("notice");
-  await user.click(
-    screen.getByRole("button", { name: "Refresh notifications" }),
-  );
-  expect(api.notifications).toHaveBeenCalledTimes(3);
+  await user.click(screen.getByRole("button", { name: "Refresh notifications" }));
+  expect(api.notifications).toHaveBeenCalledTimes(4);
 });
 test("read errors recover and stale actions require deliberate refresh", async () => {
   const user = userEvent.setup();
@@ -468,10 +457,85 @@ test("a stale officer cannot approve a newer unseen submission without refreshin
   await user.click(screen.getByRole("button",{name:"Record final decision"}));
   await screen.findByText("The saved case changed. Refresh and review the current submission before acting.");
   expect(api.caseCommand).not.toHaveBeenCalled();
-  expect(screen.getByText("Under Review · Version 1")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Under Review · Version 1" })).toBeVisible();
   expect(screen.queryByRole("button",{name:"Retry action"})).not.toBeInTheDocument();
   await user.click(screen.getByRole("button",{name:"Refresh case history"}));
-  await screen.findByText("Under Review · Version 2");
+  await screen.findByRole("heading", { name: "Under Review · Version 2" });
   await user.click(screen.getByRole("button",{name:"Record final decision"}));
   await waitFor(()=>expect(api.caseCommand).toHaveBeenCalledWith(newer,"decision",{outcome:"APPROVED",explanation:"Document review completed"},expect.any(String)));
+});
+
+
+test("officer feedback links reach retained field and document summaries", async () => {
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, status: "UNDER_REVIEW", latestVersion: 1, versions: [version], issues: [issue, { ...issue, id: "document-issue", kind: "DOCUMENT", target: "doc" }] });
+  render(<CasePanel id="case" role="OFFICER" />);
+  const field = await screen.findByRole("link", { name: "Go to requested field" });
+  const document = screen.getByRole("link", { name: "Go to requested document" });
+  expect(field).toHaveAttribute("href", "#submitted-legalName");
+  expect(document).toHaveAttribute("href", "#submitted-documentRequest.doc");
+  expect(window.document.getElementById("submitted-legalName")).toHaveTextContent("Cafe");
+  expect(window.document.getElementById("submitted-documentRequest.doc")).toHaveTextContent("registration.pdf");
+});
+
+
+test("failed notification clearing keeps messages available and reports the error", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.notifications).mockResolvedValue([{ id: "notice", applicationId: "case", message: "Action required", createdAt: "2026-10-04T00:00:00Z", readAt: null }]);
+  vi.mocked(api.clearNotifications).mockRejectedValue(new Error("Please retry"));
+  render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  await user.click(await screen.findByRole("button", { name: "Clear all" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Please retry");
+  expect(screen.getByText("Action required")).toBeVisible();
+});
+
+test("mark all as read targets only unread notifications", async () => {
+  const user = userEvent.setup();
+  const notice = { id: "unread", applicationId: "case", message: "Action required", createdAt: "2026-10-04T00:00:00Z", readAt: null };
+  const read = { ...notice, id: "read", readAt: "2026-10-04T00:01:00Z" };
+  vi.mocked(api.notifications).mockResolvedValue([notice, read]);
+  render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  vi.mocked(api.notifications).mockResolvedValue([{ ...notice, readAt: read.readAt }, read]);
+  await user.click(await screen.findByRole("button", { name: "Mark all as read" }));
+  await screen.findByText("Notifications · 0 unread");
+  expect(api.readNotification).toHaveBeenCalledExactlyOnceWith("unread");
+});
+
+
+test("operator cannot submit a saved revision that has not been reviewed", async () => {
+  const user = userEvent.setup();
+  render(<CasePanel id="case" role="OPERATOR" />);
+  await screen.findByRole("button", { name: "Submit application" });
+  await user.click(screen.getByRole("checkbox", { name: "I confirm this application is accurate." }));
+  await user.click(screen.getByRole("checkbox", { name: "I am authorised to apply for this business." }));
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, revision: 3 });
+  await user.click(screen.getByRole("button", { name: "Submit application" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Refresh and review the current submission");
+  expect(api.caseCommand).not.toHaveBeenCalled();
+});
+
+test("saved missing requirements prevent submission before fresh declarations", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getCase).mockResolvedValue({ ...base, working: { ...draft, completion: { completed: 1, required: 2, percentage: 50, unmetItemIds: ["legalName", "declaration.accuracy", "declaration.authority"] } } });
+  render(<CasePanel id="case" role="OPERATOR" />);
+  await screen.findByText("Complete the remaining requirements");
+  await user.click(screen.getByRole("checkbox", { name: "I confirm this application is accurate." }));
+  await user.click(screen.getByRole("checkbox", { name: "I am authorised to apply for this business." }));
+  expect(screen.getByRole("button", { name: "Submit application" })).toBeDisabled();
+  expect(api.caseCommand).not.toHaveBeenCalled();
+});
+
+test("operator response synchronizes the panel after a locally committed draft revision", async () => {
+  const detail = { ...base, status: "PENDING_PRE_SITE_RESUBMISSION" as const, latestVersion: 1, versions: [version], issues: [issue] };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  const { rerender } = render(<CasePanel id="case" role="OPERATOR" workingRevision={2} />);
+  await userEvent.type(await screen.findByLabelText("Response to this request"), "Correction completed");
+  const saved = { ...detail, revision: 4, working: { ...draft, revision: 4, legalName: "Corrected Cafe" } };
+  vi.mocked(api.getCase).mockResolvedValue(saved);
+  vi.mocked(api.caseCommand).mockResolvedValue(saved);
+  rerender(<CasePanel id="case" role="OPERATOR" workingRevision={4} />);
+  await waitFor(() => expect(screen.getByRole("region", { name: "Review saved application" })).toHaveTextContent("Corrected Cafe"));
+  await userEvent.click(screen.getByRole("button", { name: "Save response" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenCalledWith(saved, "response", { issueId: "issue", response: "Correction completed" }, expect.any(String)));
 });

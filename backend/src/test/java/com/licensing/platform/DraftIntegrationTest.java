@@ -112,7 +112,7 @@ class DraftIntegrationTest {
     void operationsNormalizePersistAndDriveSavedProgress() {
         var draft = drafts.create("owner-a", "operations", Map.of());
         assertEquals(0, draft.completion().completed());
-        assertEquals(26, draft.completion().required());
+        assertEquals(19, draft.completion().required());
 
         Map<String, Object> hours = new LinkedHashMap<>();
         hours.put("MONDAY", Map.of("closed", true));
@@ -125,8 +125,8 @@ class DraftIntegrationTest {
 
         assertEquals(List.of("BAKING", "COOKING"), saved.preparationActivities());
         assertEquals("02:00", saved.operatingHours().get("WEDNESDAY").closes());
-        assertEquals(8, saved.completion().completed());
-        assertEquals(26, saved.completion().required());
+        assertEquals(5, saved.completion().completed());
+        assertEquals(19, saved.completion().required());
         assertEquals(saved.operatingHours(), drafts.get(draft.id(), "owner-a").operatingHours());
     }
 

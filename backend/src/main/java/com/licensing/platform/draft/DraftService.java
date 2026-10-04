@@ -813,10 +813,6 @@ public class DraftService {
         if (d.serviceModes().isEmpty()) {
             unmet.add("serviceModes");
         }
-        DAYS.stream()
-                .sorted()
-                .filter(day -> !d.operatingHours().containsKey(day))
-                .forEach(day -> unmet.add("operatingHours." + day));
         rows.requests().stream()
                 .filter(request -> request.applicability().equals("APPLICABLE")
                                                 && (request.currentUpload() == null || !request.currentUpload().ready()))
@@ -829,7 +825,7 @@ public class DraftService {
                                 .filter(request -> request.applicability().equals("APPLICABLE"))
                                 .count();
         int required =
-                23
+                16
                         + (Boolean.TRUE.equals(d.unitApplicable()) ? 1 : 0)
                         + applicableRequests;
         int completed = required - unmet.size();

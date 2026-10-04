@@ -2,6 +2,10 @@
 @import "tw-animate-css";
 /* ejected from shadcn@4.21.1 */
 @theme inline {
+  --color-status-info: var(--status-info);
+  --color-status-warning: var(--status-warning);
+  --color-status-success: var(--status-success);
+  --color-status-danger: var(--status-danger);
   @keyframes accordion-down {
     from {
       height: 0;
@@ -722,7 +726,12 @@
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
+    color-scheme: dark;
+    --status-info: #93c5fd;
+    --status-warning: #fcd34d;
+    --status-success: #86efac;
+    --status-danger: #fda4af;
+    --background: oklch(0 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);

@@ -2,6 +2,7 @@ package com.licensing.platform;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -78,6 +79,18 @@ class AuthIntegrationTest {
     @Test
     void officerCanOnlyReadOfficerWorkspace() throws Exception {
         assertWorkspaceAccess("officer", "/api/workspaces/officer", "/api/workspaces/operator");
+    }
+
+    @Test
+    void clearingNotificationsRequiresAuthenticationAndCsrf() throws Exception {
+        Client anonymous = new Client();
+        anonymous.perform(delete("/api/notifications").header("X-XSRF-TOKEN", anonymous.freshCsrf()))
+                .andExpect(status().isUnauthorized());
+        Client client = new Client();
+        client.login("operator", "password").andExpect(status().isNoContent());
+        client.perform(delete("/api/notifications")).andExpect(status().isForbidden());
+        client.perform(delete("/api/notifications").header("X-XSRF-TOKEN", client.freshCsrf()))
+                .andExpect(status().isNoContent());
     }
 
     @Test

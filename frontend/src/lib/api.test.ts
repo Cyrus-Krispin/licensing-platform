@@ -324,3 +324,16 @@ test("simulated processing status and retry are separate from draft revision wri
     api.retryProcessing("app", "file", "retry-key"),
   ).rejects.toMatchObject({ status: 409 });
 });
+
+test("clearing notifications uses an authenticated CSRF request and reports failures", async () => {
+  const api = await import("./api");
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json({ token: "token", headerName: "X-CSRF" }))
+    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+  await api.clearNotifications();
+  expect(fetch).toHaveBeenLastCalledWith("/api/notifications", expect.objectContaining({ method: "DELETE", headers: expect.objectContaining({ "X-CSRF": "token" }) }));
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json({ token: "token", headerName: "X-CSRF" }))
+    .mockResolvedValueOnce(json({ message: "Please retry" }, 503));
+  await expect(api.clearNotifications()).rejects.toThrow("Please retry");
+});

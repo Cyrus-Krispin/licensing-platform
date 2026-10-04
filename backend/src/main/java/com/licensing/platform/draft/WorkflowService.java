@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WorkflowService {
     private static final Set<String> FIELDS = Set.of("legalName", "tradingName", "registrationNumber", "structure", "applicantName", "applicantRole", "applicantEmail", "applicantPhone", "premisesAddress", "premisesName", "unitApplicable", "unitNumber", "tenure", "businessType", "preparationActivities", "serviceModes", "proposedOpeningDate");
-    private static final Set<String> DAYS = Set.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY");
     private final JdbcTemplate db;
     private final ObjectMapper mapper;
     private final DraftService drafts;
@@ -95,7 +94,7 @@ public class WorkflowService {
                 String title = null;
                 if (kind.equals("FIELD")) {
                     target=text(body,"target",100);
-                    if (!FIELDS.contains(target) && !(target.startsWith("operatingHours.") && DAYS.contains(target.substring("operatingHours.".length())))) bad("Unknown field target");
+                    if (!FIELDS.contains(target)) bad("Unknown field target");
                 } else if (kind.equals("DOCUMENT")) {
                     target=uuid(body,"target").toString();
                     if (count("select count(*) from document_request where application_id=? and id=?",app,UUID.fromString(target))!=1) bad("Document request does not belong to this application");
@@ -202,6 +201,7 @@ public class WorkflowService {
     private UUID uuid(Map<String,Object> body,String name) { try{return UUID.fromString(text(body,name,100));}catch(IllegalArgumentException e){bad(name+" must be a UUID");return null;} }
     private Timestamp now() { return Timestamp.from(Instant.now()); }
     private void notify(String recipient,UUID app,UUID event,String message) { db.update("insert into notification(id,recipient,application_id,event_id,message,created_at) values(?,?,?,?,?,?)",UUID.randomUUID(),recipient,app,event,message,now()); }
+    @Transactional public void clearNotifications(String actor) { db.update("delete from notification where recipient=?",actor); }
     public List<Notification> notifications(String actor) { return db.query("select id,application_id,message,created_at,read_at from notification where recipient=? order by created_at desc,id",(r,n)->new Notification(r.getObject(1,UUID.class),r.getObject(2,UUID.class),r.getString(3),r.getTimestamp(4).toInstant(),r.getTimestamp(5)==null?null:r.getTimestamp(5).toInstant()),actor); }
     @Transactional public void markRead(UUID id,String actor) { if(db.update("update notification set read_at=coalesce(read_at,?) where id=? and recipient=?",now(),id,actor)!=1) throw error(HttpStatus.NOT_FOUND,"not_found","Notification not found"); }
     private String json(Object value) { try{return mapper.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException("Unable to serialize workflow record",e);} }

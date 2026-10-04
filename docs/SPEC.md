@@ -48,7 +48,7 @@ Normal local setup contains exactly one operator and one officer, seeded persist
 
 ## Field schema and validation
 
-**Accepted through T07:** the initial-draft sections, required/optional exceptions, conditional unit, activities/service modes, daily hours, opening date, saved progress formula, and declaration display follow scope. Later submission/correction rules remain proposed where marked. These are fictional product rules.
+**Accepted through T07:** the initial-draft sections, required/optional exceptions, conditional unit, activities/service modes, opening date, saved progress formula, and declaration display follow scope. Later submission/correction rules remain proposed where marked. These are fictional product rules.
 
 Trim surrounding whitespace in text. Validate the API's types, known keys, enumerations, lengths, and calendar/time formats on every write. Drafts may omit required values; completeness rules apply at submission/resubmission. Invalid values return field errors rather than being silently coerced. Escape values on display; do not accept HTML as field content.
 
@@ -70,7 +70,6 @@ Trim surrounding whitespace in text. Validate the API's types, known keys, enume
 | `operations.businessType` | `CAFE`, `RESTAURANT` | Required; fixed premises only |
 | `operations.preparationActivities` | Distinct set: `BEVERAGE_PREPARATION`, `COOKING`, `BAKING`, `REHEATING`, `COLD_FOOD_PREPARATION`, `PREPACKAGED_FOOD_SALE` | At least one known value |
 | `operations.serviceModes` | Distinct set: `DINE_IN`, `TAKEAWAY`, `DELIVERY` | At least one known value |
-| `operations.operatingHours` | Seven named weekdays; each `{closed, opensAt, closesAt, closesNextDay}` | Each day explicitly closed or has one valid `HH:mm` interval; closed days have no times; same-day end after start, next-day end at/before start; no zero-length or 24-hour interval |
 | `operations.proposedOpeningDate` | ISO calendar date `YYYY-MM-DD` | Required valid date; no automatic rejection when a retained date becomes past during review |
 | Declaration | Accuracy and authority confirmations captured on submission | Both affirmatively confirmed by the submitting operator |
 
@@ -296,7 +295,7 @@ No arbitrary latency, throughput, uptime, browser matrix, or formal accessibilit
 1. Clean Docker setup → both real sign-ins → operator draft/save/upload → valid initial submission → officer full review → approval → operator persistent outcome notification.
 2. Officer issues a field correction, replacement request, and additional evidence → operator sees prominent linked feedback and locked unrelated inputs → resubmits → officer compares versions and confirms resolution. Repeat with insufficient response and another round; inspect all retained files/comments.
 3. Reject with an explanation while issues remain → verify retained history and absence of any reopening/edit path.
-4. Exercise conditional tenure/representative/unit requirements, empty sets, invalid daily hours, declaration omission, upload boundary/mismatch cases, and a dependent-field correction that requires explicit officer request.
+4. Exercise conditional tenure/representative/unit requirements, empty sets, declaration omission, upload boundary/mismatch cases, and a dependent-field correction that requires explicit officer request.
 5. Use isolated extra-owner fixtures, anonymous calls, forged IDs, and direct API writes to prove authorization rather than relying on UI controls. Check sessions/CSRF and private file retrieval.
 6. Inject DB/storage faults and interruption during upload, simulation, and submission; retry with stable keys, reconcile orphans, and inspect no lost good data/duplicate versions/events. Race stale browser sessions and reject overwrite attempts.
 7. Exercise every included state and transition with queue filters active; recover each case through the scoped all-status view and verify exact role labels. Generate notifications while recipients are offline, restart containers, and verify correct history/read permissions and approval-stage privacy. Do not claim testing of deferred-stage cases or transitions.
@@ -357,7 +356,7 @@ Each immutable `evidence_upload` has exactly one durable `simulated_check`. Migr
 - `GET /api/applications/{applicationId}/evidence/processing` returns owner-authorized statuses for every retained immutable upload: `uploadId`, `requestId`, `state`, `attempt`, and lifecycle timestamps. It returns no findings, flags, confidence, approval, or validity result. Draft status remains inaccessible to officers until T10 defines submitted access.
 - `POST /api/applications/{applicationId}/evidence/processing/{uploadId}/retry` requires CSRF and `Idempotency-Key`. Only `ERROR` on an owned editable initial `DRAFT` creates a new queued attempt. A matching committed receipt is recovered before fresh state/editability evaluation; key/payload collisions conflict and concurrent identical retries converge. Retry does not adopt or increment the application revision.
 
-The browser polls without overlapping requests, cancels its timer on unmount/logout, and treats transient read failures as recoverable. Poll results update processing presentation only, leaving local scalar, set, hours, upload/replacement state, and the saved comparison base intact. `COMPLETE` is displayed as “Simulated check complete” with the explicit statement that completion establishes neither document validity nor licensing compliance. Processing state is never a submission gate; ready-file integrity remains independent.
+The browser polls without overlapping requests, cancels its timer on unmount/logout, and treats transient read failures as recoverable. Poll results update processing presentation only, leaving local scalar, set, upload/replacement state, and the saved comparison base intact. `COMPLETE` is displayed as “Simulated check complete” with the explicit statement that completion establishes neither document validity nor licensing compliance. Processing state is never a submission gate; ready-file integrity remains independent.
 
 ## Local core API implementation (issue #25)
 
@@ -370,3 +369,8 @@ Initial submission and resubmission require mandatory complete fields, applicabl
 `GET /api/cases/{id}/evidence/uploads/{uploadId}` allows owners or officers with a submitted file reference. `GET /api/cases/{id}/checks` exposes status-only simulated checks; officer reads include submitted uploads only. `GET /api/notifications` and `POST /api/notifications/{id}/read` enforce recipient ownership. No separate approval stage or mid-round additions are exposed.
 
 The dependency/completeness edge above remains pending: no resubmission exception, automatic dependent unlock, or unpublished evidence access is implemented. Comment templates and detailed comparison polish are deferred; full prior submissions and retained files are implemented.
+
+
+### Operating hours removal
+
+The user removed operating hours from the product. No form controls, saved-review rows or new officer request options collect them, and seven weekday items are excluded from completeness/submission checks. Required completion is now 16 base items (including two fresh declarations), plus applicable document requests and the conditional unit number. Legacy stored values and immutable versions remain intact; saves from the form do not send or clear operating hours. Backend compatibility validation/storage remains available for existing records, rather than destructively migrating retained history.
