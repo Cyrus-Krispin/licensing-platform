@@ -91,6 +91,21 @@ beforeEach(() => {
   vi.mocked(api.processingStatuses).mockResolvedValue([]);
 });
 
+test("workspace navigation preserves unsaved application edits", async () => {
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([premisesDraft()]);
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  await userEvent.type(screen.getByLabelText("Trading name"), "Unsaved name");
+  await userEvent.click(screen.getByRole("tab", { name: /Notifications/ }));
+  expect(await screen.findByRole("heading", { name: /Notifications/ })).toBeVisible();
+  expect(screen.getByLabelText("Trading name")).not.toBeVisible();
+  await userEvent.click(screen.getByRole("tab", { name: "Applications" }));
+  expect(screen.getByLabelText("Trading name")).toHaveValue("Unsaved name");
+  expect(screen.getByLabelText("Trading name")).toBeVisible();
+  expect(api.saveDraft).not.toHaveBeenCalled();
+});
+
 describe("authentication workspace", () => {
   test("saves closed and open operation hours without null closed-day members", async () => {
     const draft = premisesDraft({

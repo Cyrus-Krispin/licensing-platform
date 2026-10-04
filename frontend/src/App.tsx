@@ -16,10 +16,10 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import * as api from "@/lib/api";
+import { WorkspaceShell } from "@/WorkspaceShell";
 import {
   CasePanel,
   OfficerCases,
-  Notifications,
   statusLabel,
 } from "@/Workflow";
 
@@ -1527,12 +1527,25 @@ export default function App() {
     );
   }
 
+  if (user) {
+    return (
+      <WorkspaceShell user={user} heading={workspace?.heading ?? "Workspace"} error={error} signingOut={submitting} onSignOut={signOut}>
+        {workspaceLoading ? (
+          <p role="status" className="text-muted-foreground">Loading workspace…</p>
+        ) : workspace ? (
+          <div className="flex flex-col gap-8">
+            <p className="text-muted-foreground">{workspace.message}</p>
+            {user.role === "OPERATOR" ? <OperatorDrafts /> : <OfficerCases />}
+          </div>
+        ) : <Button variant="outline" onClick={() => loadWorkspace(user)}>Retry workspace</Button>}
+      </WorkspaceShell>
+    );
+  }
+
   return (
     <main className="grid min-h-svh place-items-center bg-background p-4 sm:p-8">
       <Card
-        className={`w-full ${
-          user ? "max-w-4xl" : "max-w-md"
-        } border-border bg-card shadow-2xl`}
+        className="w-full max-w-md border-border bg-card"
       >
         <CardHeader>
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -1540,13 +1553,11 @@ export default function App() {
           </p>
           <CardTitle>
             <h1 className="text-2xl">
-              {user ? (workspace?.heading ?? "Workspace") : "Sign in"}
+              Sign in
             </h1>
           </CardTitle>
           <CardDescription>
-            {user
-              ? `Signed in as ${user.username} · ${user.role.toLowerCase()}`
-              : "Use your development operator or officer account."}
+            Use your development operator or officer account.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1557,39 +1568,6 @@ export default function App() {
             </Alert>
           )}
 
-          {user ? (
-            <div className="space-y-5">
-              {workspaceLoading ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Loading workspace…
-                </p>
-              ) : workspace ? (
-                user.role === "OPERATOR" ? (
-                  <>
-                    <p className="text-sm leading-6">{workspace.message}</p>
-                    <OperatorDrafts />
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm leading-6">{workspace.message}</p>
-                    <OfficerCases />
-                  </>
-                )
-              ) : (
-                <Button variant="outline" onClick={() => loadWorkspace(user)}>
-                  Retry workspace
-                </Button>
-              )}
-              {workspace && <Notifications />}
-              <Button
-                className="w-full"
-                onClick={signOut}
-                disabled={submitting}
-              >
-                {submitting ? "Signing out…" : "Sign out"}
-              </Button>
-            </div>
-          ) : (
             <form className="space-y-4" onSubmit={signIn}>
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
@@ -1615,7 +1593,6 @@ export default function App() {
                 {submitting ? "Signing in…" : "Sign in"}
               </Button>
             </form>
-          )}
         </CardContent>
       </Card>
     </main>
