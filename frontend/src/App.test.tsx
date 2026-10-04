@@ -99,8 +99,8 @@ test("opening submission focuses the workflow above the editor", async () => {
   vi.mocked(api.getCase).mockResolvedValue({ id: draft.id, revision: draft.revision, status: "DRAFT", latestVersion: 0, round: 0, working: draft, versions: [], issues: [], events: [] });
   render(<App />);
   await userEvent.click(await screen.findByTitle("Cafe"));
-  await userEvent.click(screen.getByRole("button", { name: "Review and submit" }));
-  await waitFor(() => expect(screen.getByRole("region", { name: "Application workflow" })).toHaveFocus());
+  await userEvent.click(screen.getByRole("button", { name: "Submit application" }));
+  await waitFor(() => expect(screen.getByRole("region", { name: "Application actions" })).toHaveFocus());
   expect(screen.getByRole("region", { name: "Review saved application" })).toHaveTextContent("Cafe");
 });
 
@@ -1283,7 +1283,7 @@ test("selected evidence survives saving fields and uploads using the saved revis
   await userEvent.click(screen.getByRole("link", { name: "Applications" }));
   expect(await screen.findByRole("alertdialog")).toHaveTextContent("files selected but not uploaded");
   await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-  expect(screen.getByRole("button", { name: "Review and submit" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Submit application" })).toBeDisabled();
   await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
   await screen.findByText(/Saved revision 2/);
   expect(screen.getByText(/lease.png selected. Not uploaded yet/)).toBeVisible();
@@ -1308,4 +1308,37 @@ test("completion distinguishes required draft items from submission declarations
   expect(completion).toHaveTextContent("two declarations confirmed at submission");
   expect((screen.getByLabelText(/Does the premises have a unit number/) as HTMLSelectElement).labels?.[0]).toHaveTextContent("*");
   expect(screen.getByRole("group", { name: /Opening hours/ })).toHaveTextContent("Choose Open or Closed for every day");
+});
+
+test("inapplicable evidence discards the local selection before becoming applicable again", async () => {
+  const draft = premisesDraft();
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.saveDraft).mockResolvedValueOnce({ ...draft, tenure: "OWNED", revision: 2, documentRequests: requests("OWNED") }).mockResolvedValueOnce({ ...draft, revision: 3 });
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  await userEvent.upload(screen.getByLabelText("Upload evidence"), new File(["png"], "lease.png", { type: "image/png" }));
+  await userEvent.selectOptions(screen.getByLabelText(/Tenure/), "OWNED");
+  await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await screen.findByText(/Saved revision 2/);
+  await userEvent.selectOptions(screen.getByLabelText(/Tenure/), "RENTED");
+  await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await screen.findByText(/Saved revision 3/);
+  expect(screen.queryByText(/lease.png selected/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Upload file" })).toBeDisabled();
+});
+
+test("failed submission review still allows saving the draft", async () => {
+  const draft = premisesDraft();
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.getCase).mockRejectedValue(new Error("Review unavailable"));
+  vi.mocked(api.saveDraft).mockResolvedValue({ ...draft, revision: 2 });
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  await userEvent.click(screen.getByRole("button", { name: "Submit application" }));
+  await screen.findByText("Review unavailable");
+  await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await screen.findByText(/Saved revision 2/);
+  expect(screen.getByRole("button", { name: "Retry application" })).toBeVisible();
 });

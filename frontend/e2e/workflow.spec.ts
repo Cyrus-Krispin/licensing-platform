@@ -108,7 +108,7 @@ test("operator and officer complete targeted corrections, retained versions and 
     ).toBeVisible();
   }
   await operator
-    .getByRole("button", { name: "Review and submit" })
+    .getByRole("button", { name: "Submit application" })
     .click();
   await declarations(operator);
   await operator

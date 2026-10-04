@@ -525,3 +525,17 @@ test("saved missing requirements prevent submission before fresh declarations", 
   expect(screen.getByRole("button", { name: "Submit application" })).toBeDisabled();
   expect(api.caseCommand).not.toHaveBeenCalled();
 });
+
+test("operator response synchronizes the panel after a locally committed draft revision", async () => {
+  const detail = { ...base, status: "PENDING_PRE_SITE_RESUBMISSION" as const, latestVersion: 1, versions: [version], issues: [issue] };
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  const { rerender } = render(<CasePanel id="case" role="OPERATOR" workingRevision={2} />);
+  await userEvent.type(await screen.findByLabelText("Response to this request"), "Correction completed");
+  const saved = { ...detail, revision: 4, working: { ...draft, revision: 4, legalName: "Corrected Cafe" } };
+  vi.mocked(api.getCase).mockResolvedValue(saved);
+  vi.mocked(api.caseCommand).mockResolvedValue(saved);
+  rerender(<CasePanel id="case" role="OPERATOR" workingRevision={4} />);
+  await waitFor(() => expect(screen.getByRole("region", { name: "Review saved application" })).toHaveTextContent("Corrected Cafe"));
+  await userEvent.click(screen.getByRole("button", { name: "Save response" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenCalledWith(saved, "response", { issueId: "issue", response: "Correction completed" }, expect.any(String)));
+});

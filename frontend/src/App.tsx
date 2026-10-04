@@ -379,6 +379,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
   const [caseDetail, setCaseDetail] = useState<api.CaseDetail | null>(null);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
+  const [submissionTarget, setSubmissionTarget] = useState<HTMLDivElement | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("Loading your drafts…");
@@ -532,7 +533,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
         current.map((item) => (item.id === saved.id ? saved : item)),
       );
       setStatus(
-        `Saved revision ${saved.revision}. Next: upload any selected files, then choose Review and submit.`,
+        `Saved revision ${saved.revision}. Next: upload any selected files, then choose Submit application at the bottom.`,
       );
       return true;
     } catch (cause) {
@@ -558,7 +559,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
             current.map((item) => (item.id === latest.id ? latest : item)),
           );
           setStatus(
-            `Recovered saved revision ${latest.revision} after the response was lost. Next: choose Review and submit.`,
+            `Recovered saved revision ${latest.revision} after the response was lost. Next: choose Submit application at the bottom.`,
           );
           return true;
         } else {
@@ -588,7 +589,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
     }
     setShowWorkflow(true);
     setReviewRequest((current) => current + 1);
-    window.setTimeout(() => document.getElementById("application-workflow")?.focus(), 0);
+    window.setTimeout(() => document.getElementById("application-actions")?.focus(), 0);
   }
 
   if (!draft) {
@@ -670,6 +671,8 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
     </div>
   );
 
+  const saveDraftAction = <Button form="application-editor" type="submit" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy}>{saving ? "Saving…" : "Save draft"}</Button>;
+
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
       <nav aria-label="Application sections" className="flex flex-wrap gap-2 border-b pb-4 lg:sticky lg:top-28 lg:flex-col lg:border-b-0 lg:border-r lg:pr-6">
@@ -688,6 +691,10 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           id={draft.id}
           role="OPERATOR"
           refreshRequest={reviewRequest}
+          workingRevision={draft.revision}
+          submissionTarget={submissionTarget}
+          submissionBlocked={saving || uploadingEvidence || !!conflict || !!pendingFileCount}
+          saveAction={saveDraftAction}
           onActivityChange={setWorkflowBusy}
           beforeCommand={(latest) => {
             if (latest.revision !== draft.revision)
@@ -758,11 +765,8 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           </Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">1. Add details and upload files. 2. Save draft. 3. Review and submit.</p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy}>{saving ? "Saving…" : "Save changes"}</Button>
-            <Button type="button" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>{draft.status === "DRAFT" || draft.status === "PENDING_PRE_SITE_RESUBMISSION" ? "Review and submit" : "View submission and history"}</Button>
-          </div>
+          <p className="text-sm text-muted-foreground">1. Add details and upload files. 2. Save draft. 3. Submit at the bottom.</p>
+
         </div>
         <p role="status" className="text-sm text-muted-foreground">{status}</p>
         {!!pendingFileCount && <Alert><AlertTitle>Upload your selected files</AlertTitle><AlertDescription>{pendingFileCount} selected file(s) have not been uploaded. Use Upload file or Replace file in Evidence before reviewing for submission. Saving draft keeps your selection while this page stays open.</AlertDescription></Alert>}
@@ -914,7 +918,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
               </li>
             ))}
           </ul>
-          <p className="text-sm text-muted-foreground">Confirm accuracy and authority in Review and submit. These declarations are not missing draft fields.</p>
+          <p className="text-sm text-muted-foreground">Confirm accuracy and authority at the bottom before submitting. These declarations are not missing draft fields.</p>
         </section>
         <fieldset id="application-business" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
           <legend className="mb-3 text-lg font-semibold">Business</legend>
@@ -1269,25 +1273,9 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
             ))}
           </ul>
         </section>
-        <Button type="button" variant="outline" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>Continue to review</Button>
-        <section aria-labelledby="declarations-heading" className="space-y-2">
-          <h3 id="declarations-heading" className="font-medium">
-            Declarations
-          </h3>
-          <p id="declaration.accuracy" tabIndex={-1} className="text-sm">
-            Accuracy: You will confirm these when submitting.
-          </p>
-          <p id="declaration.authority" tabIndex={-1} className="text-sm">
-            Authority: You will confirm these when submitting.
-          </p>
-        </section>
-        <Button
-          form="application-editor"
-          type="submit"
-          disabled={saving || uploadingEvidence || !!conflict || workflowBusy}
-        >
-          {saving ? "Saving…" : "Save draft"}
-        </Button>
+        <div id="application-actions" ref={setSubmissionTarget} tabIndex={-1} role="region" aria-label="Application actions" className="scroll-mt-24">
+          {!showWorkflow && <div className="flex gap-3">{saveDraftAction}<Button type="button" disabled={saving || uploadingEvidence || !!conflict || workflowBusy || !!pendingFileCount} onClick={reviewSubmission}>Submit application</Button></div>}
+        </div>
       </div>
     </div>
   );

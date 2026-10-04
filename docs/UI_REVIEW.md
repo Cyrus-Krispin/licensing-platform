@@ -162,3 +162,18 @@ Verified saved evidence (isolated test application):
 Inspection of the current saved draft found 12 outstanding draft requirements: the premises unit-applicability Yes/No choice, seven Open/Closed day choices, and four applicable evidence files. The backend correctly excludes optional fields and non-applicable evidence. The interface omitted required markers for the unit question and opening-hour/selection groups, making those requirements look optional. Required markers and explicit daily-hours guidance now align with the existing rules. Completion distinguishes outstanding details/files from the two fresh submission declarations; totals continue to use server-provided completion. No saved draft was edited.
 
 Validation: 62 frontend tests and lint/typecheck/coverage/build passed; backend verification passed with 56 tests and nine skips; two isolated Chromium tests passed. Compose is healthy on 8081, and Markdown links/whitespace checks passed.
+
+
+### Submission footer and correction regressions
+
+The latest operator layout puts **Save draft** (quiet outline) and **Submit application / Resubmit application** (white primary action) together in the bottom row, with fresh declarations immediately above. The top submission action and duplicate review/save actions were removed. Opening submission focuses the bottom action area; saved-answer review and officer feedback remain accessible above the editor. Existing submission completeness and declarations remain enforced.
+
+After successful field saves and evidence uploads, the open workflow panel now refreshes to the operator's committed working revision. It disables actions while synchronizing and rejects stale revision/version/status from other sessions before sending commands. Refresh generations prevent older loads from replacing a newer panel or command result; unknown-outcome command retries retain their original identity. Correction response text remains mounted while saved values refresh. Local file selection/retry state is cleared when its request becomes non-applicable, so changing tenure to Owned cannot leave a hidden lease selection blocking submission or reappearing if tenure changes back. Retained uploaded files are unaffected.
+
+README and scope now describe the delivered core workflow and explicitly defer templates, site/post-site, issuance, live AI flags and hosting choices. Settled validation, transition, API/session/storage and notification-read decisions are no longer listed as pending.
+
+Validation: both reported regressions first failed in focused tests, then passed after repair. Frontend ci/check passed 65 tests, lint/typecheck/coverage/build; backend verify passed 56 tests with nine skips. All six Chromium tests passed against a temporary isolated Compose stack, including the real correction/evidence/three-response/resubmission/resolution/approval journey, retained versions, two-tab conflict recovery, keyboard auth, notification controls and footer geometry at 1280px/320px. The user's database was not used for these tests. The temporary stack/volumes were removed after verification; only the existing local licensing stack remains on 8081. Markdown links and whitespace checks passed. Hosted required CI/security gates remain required before merge.
+
+Verified submission footer (isolated test application):
+
+![Save draft and white Submit application button in one bottom row beneath fresh declarations](ui-review/submit-actions.png)

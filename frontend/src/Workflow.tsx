@@ -1,10 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/StatusBadge";
@@ -246,6 +249,10 @@ export function CasePanel({
   onDetail,
   refreshRequest = 0,
   onActivityChange,
+  workingRevision,
+  submissionTarget,
+  saveAction,
+  submissionBlocked = false,
 }: {
   id: string;
   role: api.User["role"];
@@ -254,6 +261,10 @@ export function CasePanel({
   onDetail?: (detail: api.CaseDetail) => void;
   refreshRequest?: number;
   onActivityChange?: (active: boolean) => void;
+  workingRevision?: number;
+  submissionTarget?: HTMLElement | null;
+  saveAction?: ReactNode;
+  submissionBlocked?: boolean;
 }) {
   const [detail, setDetail] = useState<api.CaseDetail | null>(null);
   const [error, setError] = useState("");
@@ -269,25 +280,34 @@ export function CasePanel({
   const [message, setMessage] = useState("");
   const [issueKind, setIssueKind] = useState("FIELD");
   const inFlight = useRef(false);
+  const loadGeneration = useRef(0);
   const onDetailRef = useRef(onDetail);
   useEffect(() => {
     onDetailRef.current = onDetail;
   }, [onDetail]);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const current = await api.getCase(id);
+      if (generation !== loadGeneration.current) return;
       setDetail(current);
       setAccuracy(false);
       setAuthority(false);
       onDetailRef.current?.(current);
       setError("");
     } catch (cause) {
-      setError((cause as Error).message);
+      if (generation === loadGeneration.current) setError((cause as Error).message);
     }
   }, [id]);
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load, refreshRequest]);
+  const synchronizeWorking = useEffectEvent(() => {
+    if (detail && workingRevision !== undefined && detail.revision !== workingRevision) void load();
+  });
+  useEffect(() => {
+    void Promise.resolve().then(() => synchronizeWorking());
+  }, [workingRevision, detail?.revision]);
   useEffect(() => {
     void Promise.resolve().then(() => onActivityChange?.(busy || !!pending));
   }, [busy, pending, onActivityChange]);
@@ -296,7 +316,7 @@ export function CasePanel({
     fields: Record<string, unknown>,
     retry = false,
   ) {
-    if (!detail || inFlight.current) return;
+    if (!detail || inFlight.current || (workingRevision !== undefined && detail.revision !== workingRevision)) return;
     inFlight.current = true;
     setBusy(true);
     setError("");
@@ -321,6 +341,7 @@ export function CasePanel({
         request.fields,
         request.key,
       );
+      loadGeneration.current++;
       setDetail(result);
       setPending(null);
       setAccuracy(false);
@@ -358,18 +379,35 @@ export function CasePanel({
   }
   if (!detail)
     return (
+      <>
       <section id="application-workflow" tabIndex={-1} className="space-y-3">
         <p role="status">{error || "Loading application…"}</p>
         <Button type="button" variant="outline" onClick={load}>
           Retry application
         </Button>
       </section>
+      {submissionTarget && createPortal(saveAction, submissionTarget)}
+      </>
     );
   const operatorRound =
     role === "OPERATOR" && detail.status === "PENDING_PRE_SITE_RESUBMISSION";
   const reviewing = role === "OFFICER" && detail.status === "UNDER_REVIEW";
   const latest = detail.versions.at(-1)?.snapshot;
   const unmetSavedItems = detail.working?.completion?.unmetItemIds.filter((item) => !item.startsWith("declaration.")) ?? [];
+  const synchronizing = workingRevision !== undefined && detail.revision !== workingRevision;
+  const submission = role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) ? (
+    <section className="space-y-3 border-t pt-6" aria-label="Submission declarations">
+      <h3 className="font-medium">{operatorRound ? "Resubmit corrections" : "Submit application"}</h3>
+      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href="#application-workflow">Review saved details</a>, then confirm both declarations afresh.</p>
+      {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence, then save.</AlertDescription></Alert>}
+      <div className="flex items-center gap-2"><Checkbox id="accuracy" checked={accuracy} onCheckedChange={(value) => setAccuracy(value === true)} /><Label htmlFor="accuracy">I confirm this application is accurate.</Label></div>
+      <div className="flex items-center gap-2"><Checkbox id="authority" checked={authority} onCheckedChange={(value) => setAuthority(value === true)} /><Label htmlFor="authority">I am authorised to apply for this business.</Label></div>
+      <div className="flex gap-3" aria-label="Save and submit actions">
+        {saveAction}
+        <Button type="button" disabled={busy || synchronizing || submissionBlocked || !!pending || !accuracy || !authority || !!unmetSavedItems.length} onClick={() => command(operatorRound ? "resubmit" : "submit", { accuracy, authority })}>{operatorRound ? "Resubmit application" : "Submit application"}</Button>
+      </div>
+    </section>
+  ) : saveAction;
   return (
     <section id="application-workflow" tabIndex={-1} className="scroll-mt-36 space-y-6" aria-label="Application workflow">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -457,7 +495,7 @@ export function CasePanel({
                     maxLength={2000}
                     defaultValue={item.response ?? ""}
                   />
-                  <Button type="submit" size="sm" disabled={busy || !!pending}>
+                  <Button type="submit" size="sm" disabled={busy || synchronizing || !!pending}>
                     Save response
                   </Button>
                 </form>
@@ -467,7 +505,7 @@ export function CasePanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={busy || !!pending}
+                  disabled={busy || synchronizing || !!pending}
                   onClick={() => command("delete-issue", { issueId: item.id })}
                 >
                   Remove unpublished request
@@ -497,7 +535,7 @@ export function CasePanel({
                     type="submit"
                     size="sm"
                     variant="outline"
-                    disabled={busy || !!pending}
+                    disabled={busy || synchronizing || !!pending}
                   >
                     Request further correction next round
                   </Button>
@@ -508,7 +546,7 @@ export function CasePanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={busy || !!pending}
+                  disabled={busy || synchronizing || !!pending}
                   onClick={() => command("resolve", { issueId: item.id })}
                 >
                   Confirm resolution
@@ -520,60 +558,14 @@ export function CasePanel({
       )}
       {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && <SavedApplicationReview detail={detail} />}
       {role === "OPERATOR" && ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(detail.status) && <Alert><AlertTitle>{detail.status === "APPLICATION_RECEIVED" ? "Application submitted" : "Corrections resubmitted"}</AlertTitle><AlertDescription>Your submission has been received. There is nothing more to submit now; an officer will review it. Check this application or the notification bell for updates.</AlertDescription></Alert>}
-      {role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) && (
-        <section
-          className="space-y-3 border-t pt-6"
-          aria-label="Submission declarations"
-        >
-          <h3 className="font-medium">
-            {operatorRound ? "Resubmit corrections" : "Submit application"}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Save your field changes and finish uploads first. Confirm both
-            declarations afresh for this submission.
-          </p>
-          {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence below, then save and review again.</AlertDescription></Alert>}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="accuracy"
-              checked={accuracy}
-              onCheckedChange={(value) => setAccuracy(value === true)}
-            />
-            <Label htmlFor="accuracy">
-              I confirm this application is accurate.
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="authority"
-              checked={authority}
-              onCheckedChange={(value) => setAuthority(value === true)}
-            />
-            <Label htmlFor="authority">
-              I am authorised to apply for this business.
-            </Label>
-          </div>
-          <Button
-            type="button"
-            disabled={busy || !!pending || !accuracy || !authority || !!unmetSavedItems.length}
-            onClick={() =>
-              command(operatorRound ? "resubmit" : "submit", {
-                accuracy,
-                authority,
-              })
-            }
-          >
-            {operatorRound ? "Resubmit application" : "Submit application"}
-          </Button>
-        </section>
-      )}
+      {submissionTarget ? createPortal(submission, submissionTarget) : submission}
       {role === "OFFICER" &&
         ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(
           detail.status,
         ) && (
           <Button
             type="button"
-            disabled={busy || !!pending}
+            disabled={busy || synchronizing || !!pending}
             onClick={() => command("start-review", {})}
           >
             Start review
@@ -626,7 +618,7 @@ export function CasePanel({
             <Input id="issue-title" name="title" maxLength={200} />
             <Label htmlFor="issue-text">Correction explanation</Label>
             <Textarea id="issue-text" name="text" required maxLength={2000} />
-            <Button type="submit" disabled={busy || !!pending}>
+            <Button type="submit" disabled={busy || synchronizing || !!pending}>
               Save review request
             </Button>
           </form>
@@ -673,7 +665,7 @@ export function CasePanel({
               required
               maxLength={2000}
             />
-            <Button type="submit" disabled={busy || !!pending}>
+            <Button type="submit" disabled={busy || synchronizing || !!pending}>
               Record final decision
             </Button>
           </form>

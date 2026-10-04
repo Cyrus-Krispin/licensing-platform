@@ -76,7 +76,7 @@ Pinned choices were checked against official documentation on 2026-10-03:
 
 Dependency versions and npm's lockfile are committed; Maven's wrapper pins Maven 3.9.10 while Spring Boot manages compatible Spring dependencies.
 
-## Actual CI and independent repair evidence
+## Historical foundation CI and independent repair evidence
 
 T05 issue #17 / PR #18 completed after all five required checks passed. Its final verification included the real PostgreSQL backend job (including create/save race coverage and zero PostgreSQL-only race skips), Compose API checks, both seeded-role browser flows, packaged-JAR inventory, and independent high/critical scans of both application images. The resulting merged baseline is `510fc4d94f664ce400b29594f195008d656e2c0e`; T06 starts directly from that commit and preserves the same five check names and gates.
 
@@ -88,7 +88,7 @@ This repair upgrades the coherent Jackson BOM to 2.21.7 and embedded Tomcat to t
 
 The frontend runtime now pins the official `nginx:1.30.5-alpine3.24` digest and narrowly upgrades `libexpat` and `pcre2`. The orchestrator's throwaway-base probe found zero high/critical issues after those two vendor patches, but that is candidate evidence only. The full application images, packaged-JAR rootfs inventory, and vulnerability results for this new commit remain pending exact-head CI/orchestrator execution.
 
-## Independently executed Docker and browser evidence
+## Historical foundation Docker and browser evidence
 
 The orchestrator/root—not a user report or human review—executed the original Compose revision. Backend and PostgreSQL became healthy. Real cookie-jar requests returned CSRF `200`, login `204`, and current-principal `200`; reusing the pre-login CSRF token made logout return `403`, while fetching the rotated token made logout return `204` and the subsequent principal request return `401`. An officer session using the same session cookie returned `200` after an ordinary backend restart without re-login. That original run also exposed the IPv6 frontend-health and private-volume ownership defects later repaired.
 
@@ -102,7 +102,11 @@ SonarQube integration is the separate deferred **CI-D1** checklist in [the imple
 
 ## Known limits and next steps
 
-Operators can create, list, reopen, and explicitly save incomplete business, applicant, premises, and operations drafts. Supplied operation sets, dates, and daily hours are validated atomically and stored canonically. Server-backed saved completion identifies every unmet scalar, set, weekday, applicable document, and future submission declaration; applicable documents become complete only after a structurally validated ready upload, while declarations are display-only until the later submit command. Saves remain owner/revision scoped and conflict recovery retains local input. No simulated processing, submission, officer draft-file access, administration, decision, notification, or correction workflow exists. Playwright browser automation runs against the real Compose stack in CI. The locked Vite toolchain currently reports one low-severity Windows-only esbuild development-server advisory; CI keeps it visible and fails on high/critical findings. HTTPS termination and deployment secrets require a selected production destination.
+The delivered local MVP supports operator drafts, immutable document uploads and simulated per-file processing; complete initial submission; strict alternating fixed field/document/additional-evidence correction rounds; immutable resubmissions and version comparison; officer-confirmed resolution/reissue; final approval/rejection with explanations; audit history; and persistent recipient-scoped in-app notifications with read/clear controls. Completion excludes optional/non-applicable items and requires an explicit Open/Closed choice for every day. Accuracy and authority are confirmed afresh at submission. Saves and uploads preserve local edits, and revision checks protect stale actions and retries.
+
+This is a fictional document-review workflow. Simulated processing does not establish document validity or legal compliance. Site/post-site workflows, separate approval routing, issuance/certificates, appeals/reopening, live AI flags, predefined comment templates, user administration and external email are deferred or excluded. Conditional corrections do not automatically unlock dependent targets or waive completeness; officers must include the required dependent targets in their fixed request set before publication. Remaining UX work includes URL routing, historical-view action safeguards and explicit final-decision confirmation; see [the UI review](docs/UI_REVIEW.md).
+
+Playwright exercises real Compose workflows in CI and can run against an isolated local Compose project without modifying the user's application data. Local evidence is recorded below and in the UI review; required hosted CI and dependency/secret/image scans must pass before merge. The locked Vite toolchain reports one low-severity Windows-only esbuild development-server advisory. HTTPS termination, deployment secrets and hosting require a selected production destination.
 
 ## AI Usage
 

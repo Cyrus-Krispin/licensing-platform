@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,19 @@ export function EvidenceUpload({
   const [retryingCheck, setRetryingCheck] = useState(false);
   const processingRetryKey = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const discardSelection = useEffectEvent(() => {
+    setFile(null);
+    setKey(null);
+    setMessage("");
+    setProgress(null);
+    if (inputRef.current) inputRef.current.value = "";
+    onPendingChange(false);
+  });
+  useEffect(() => {
+    if (request.applicability !== "APPLICABLE" && file) {
+      void Promise.resolve().then(() => discardSelection());
+    }
+  }, [request.applicability, file]);
   const currentUploadId = request.currentUpload?.id;
   useEffect(() => {
     let stopped = false;

@@ -46,7 +46,7 @@ test("save retains file selection, review shows saved answers, and Applications 
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect(page.getByLabel("Trading name", { exact: true })).toHaveValue("New trading name");
   await page.getByLabel("Upload evidence", { exact: true }).setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
-  await expect(page.getByRole("button", { name: "Review and submit", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Submit application", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByText(/Saved revision 2/)).toBeVisible();
   expect(await page.getByLabel("Upload evidence", { exact: true }).evaluate((element: HTMLInputElement) => element.files?.[0]?.name)).toBe("proof.png");
@@ -57,11 +57,27 @@ test("save retains file selection, review shows saved answers, and Applications 
   await expect(page.getByRole("link", { name: "Open saved proof.png", exact: true })).toBeVisible();
   await page.getByRole("region", { name: "Evidence requirements" }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("saved-evidence.png") });
-  await page.getByRole("button", { name: "Review and submit", exact: true }).click();
+  await page.getByRole("button", { name: "Submit application", exact: true }).click();
   const review = page.getByRole("region", { name: "Review saved application", exact: true });
   await expect(review).toContainText("New trading name");
   await expect(review.getByRole("link", { name: "proof.png", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit application", exact: true })).toBeDisabled();
+  await page.getByRole("checkbox", { name: "I confirm this application is accurate." }).check();
+  await page.getByRole("checkbox", { name: "I am authorised to apply for this business." }).check();
+  await expect(page.getByRole("button", { name: "Submit application", exact: true })).toBeEnabled();
+  const actions = page.getByRole("region", { name: "Application actions", exact: true });
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await actions.scrollIntoViewIfNeeded();
+    const save = await actions.getByRole("button", { name: "Save draft", exact: true }).boundingBox();
+    const submit = await actions.getByRole("button", { name: "Submit application", exact: true }).boundingBox();
+    expect(save).not.toBeNull();
+    expect(submit).not.toBeNull();
+    expect(save!.y).toBe(submit!.y);
+    expect(save!.x + save!.width).toBeLessThan(submit!.x);
+    expect(submit!.x + submit!.width).toBeLessThanOrEqual(width);
+    if (width === 1280) await page.screenshot({ path: testInfo.outputPath("submit-actions.png") });
+  }
   await page.getByRole("link", { name: "Applications", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your applications", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your applications", exact: true })).toBeFocused();

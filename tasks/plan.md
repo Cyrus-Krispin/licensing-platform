@@ -29,3 +29,7 @@ The user subsequently requested Create application naming and a bell dropdown wi
 ## Current priority slice
 
 Address the user's three reported obstacles before broader audit work: unclear save-to-submission transition, evidence selection disappearing when the form resets after saving, and navigation failing to return to the list. Keep evidence outside the resettable field form, distinguish selected/unuploaded files from saved uploads, expose Review and submit near Save, and show saved answers before fresh declarations. Route workspace navigation to the role's list and protect unsaved operator edits/selections with an explicit discard dialog. Preserve submission concurrency guards, immutable uploads and fixed targeted corrections. Use regression and mocked browser tests without adding records to the user's database.
+
+## Submission-readiness refinement
+
+The user requested the final Submit/Resubmit action in one bottom row beside a quieter Save draft button. Keep the workflow panel and officer feedback above the editor, while rendering its declaration/actions in the footer. Synchronize the panel only from accepted local working revisions; retain explicit stale-server checks and original retry receipts. Clear local selections for evidence that becomes non-applicable without deleting retained uploads. Update README/scope to the delivered MVP and defer templates explicitly. Verify the complete correction-to-approval journey on disposable isolated Compose data, then remove that temporary stack and retain the single local 8081 instance.
