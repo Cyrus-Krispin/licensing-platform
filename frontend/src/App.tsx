@@ -57,16 +57,35 @@ const fieldLabels: Record<DraftField, string> = {
   proposedOpeningDate: "Proposed opening date",
 };
 
-const activities = ["BEVERAGE_PREPARATION", "COOKING", "BAKING", "REHEATING", "COLD_FOOD_PREPARATION", "PREPACKAGED_FOOD_SALE"];
+const activities = [
+  "BEVERAGE_PREPARATION",
+  "COOKING",
+  "BAKING",
+  "REHEATING",
+  "COLD_FOOD_PREPARATION",
+  "PREPACKAGED_FOOD_SALE",
+];
 const modes = ["DINE_IN", "TAKEAWAY", "DELIVERY"];
-const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+const days = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+];
 
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return [...value].sort();
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (record.closed === true) return { closed: true };
-    return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonicalValue(item)]));
+    return Object.fromEntries(
+      Object.entries(record)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, canonicalValue(item)]),
+    );
   }
   return value ?? null;
 }
@@ -77,15 +96,28 @@ function canonical(value: unknown): string {
 
 function operationValues(data: FormData): PatchFields {
   return {
-    preparationActivities: data.getAll("preparationActivities").map(String).sort(),
+    preparationActivities: data
+      .getAll("preparationActivities")
+      .map(String)
+      .sort(),
     serviceModes: data.getAll("serviceModes").map(String).sort(),
-    operatingHours: Object.fromEntries([...days].sort().flatMap((day) => {
-      const state = String(data.get(`${day}.state`) ?? "NOT_SET");
-      if (state === "NOT_SET") return [];
-      return [[day, state === "CLOSED"
-        ? { closed: true }
-        : { closed: false, opens: String(data.get(`${day}.opens`) ?? ""), closes: String(data.get(`${day}.closes`) ?? ""), closesNextDay: data.get(`${day}.closesNextDay`) === "true" }]];
-    })),
+    operatingHours: Object.fromEntries(
+      [...days].sort().flatMap((day) => {
+        const state = String(data.get(`${day}.state`) ?? "NOT_SET");
+        if (state === "NOT_SET") return [];
+        const hours =
+          state === "CLOSED"
+            ? { closed: true }
+            : {
+                closed: false,
+                opens: String(data.get(`${day}.opens`) ?? ""),
+                closes: String(data.get(`${day}.closes`) ?? ""),
+                closesNextDay:
+                  data.get(`${day}.closesNextDay`) === "true",
+              };
+        return [[day, hours]];
+      }),
+    ),
   };
 }
 
@@ -96,8 +128,12 @@ function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFiel
     const original = new Set(base[field] ?? []);
     const local = new Set(edits[field] as string[]);
     const result = new Set(latest[field] ?? []);
-    local.forEach((item) => { if (!original.has(item)) result.add(item); });
-    original.forEach((item) => { if (!local.has(item)) result.delete(item); });
+    local.forEach((item) => {
+      if (!original.has(item)) result.add(item);
+    });
+    original.forEach((item) => {
+      if (!local.has(item)) result.delete(item);
+    });
     merged[field] = [...result].sort();
   });
   if (edits.operatingHours) {
@@ -105,15 +141,31 @@ function mergeConflictEdits(base: api.Draft, latest: api.Draft, edits: PatchFiel
     const baseHours = base.operatingHours ?? {};
     const hours = { ...(latest.operatingHours ?? {}) };
     new Set([...Object.keys(baseHours), ...Object.keys(local)]).forEach((day) => {
-      const original = canonicalValue(baseHours[day]) as Record<string, unknown> | null;
-      const changed = canonicalValue(local[day]) as Record<string, unknown> | null;
+      const original = canonicalValue(baseHours[day]) as Record<
+        string,
+        unknown
+      > | null;
+      const changed = canonicalValue(local[day]) as Record<
+        string,
+        unknown
+      > | null;
       if (canonical(original) === canonical(changed)) return;
-      if (!changed) { delete hours[day]; return; }
-      const current = { ...(canonicalValue(hours[day]) as Record<string, unknown> | null ?? {}) };
-      const keys = new Set([...Object.keys(original ?? {}), ...Object.keys(changed)]);
+      if (!changed) {
+        delete hours[day];
+        return;
+      }
+      const current = {
+        ...((canonicalValue(hours[day]) as Record<string, unknown> | null) ??
+          {}),
+      };
+      const keys = new Set([
+        ...Object.keys(original ?? {}),
+        ...Object.keys(changed),
+      ]);
       keys.forEach((key) => {
         if (canonical(original?.[key]) !== canonical(changed[key])) {
-          if (changed[key] === undefined) delete current[key]; else current[key] = changed[key];
+          if (changed[key] === undefined) delete current[key];
+          else current[key] = changed[key];
         }
       });
       hours[day] = current as DayHours;
@@ -149,53 +201,140 @@ function documentRequestLabel(type: string) {
 }
 
 function describeHours(hours: api.Draft["operatingHours"] = {}) {
-  return days.map((day) => {
-    const value = hours?.[day];
-    if (!value) return `${documentRequestLabel(day)}: not set`;
-    if (value.closed) return `${documentRequestLabel(day)}: closed`;
-    return `${documentRequestLabel(day)}: ${value.opens}–${value.closes}${value.closesNextDay ? " next day" : ""}`;
-  }).join("; ");
+  return days
+    .map((day) => {
+      const value = hours?.[day];
+      if (!value) return `${documentRequestLabel(day)}: not set`;
+      if (value.closed) return `${documentRequestLabel(day)}: closed`;
+      const overnight = value.closesNextDay ? " next day" : "";
+      return `${documentRequestLabel(day)}: ${value.opens}–${value.closes}${overnight}`;
+    })
+    .join("; ");
 }
 
 function describeSelection(values: string[] | undefined) {
-  return values?.length ? values.map(documentRequestLabel).join(", ") : "None selected";
+  return values?.length
+    ? values.map(documentRequestLabel).join(", ")
+    : "None selected";
 }
 
 function unmetLabel(draft: api.Draft, id: string) {
-  if (id.startsWith("operatingHours.")) return `${documentRequestLabel(id.split(".")[1])} hours`;
+  if (id.startsWith("operatingHours.")) {
+    return `${documentRequestLabel(id.split(".")[1])} hours`;
+  }
   if (id.startsWith("documentRequest.")) {
     const requestId = id.slice("documentRequest.".length);
     const request = draft.documentRequests?.find((item) => item.id === requestId);
-    return request ? `${documentRequestLabel(request.type)} file` : "Required evidence file";
+    return request
+      ? `${documentRequestLabel(request.type)} file`
+      : "Required evidence file";
   }
-  if (id === "declaration.accuracy") return "Accuracy confirmation — You will confirm this when submitting.";
-  if (id === "declaration.authority") return "Authority confirmation — You will confirm this when submitting.";
+  if (id === "declaration.accuracy") {
+    return "Accuracy confirmation — You will confirm this when submitting.";
+  }
+  if (id === "declaration.authority") {
+    return "Authority confirmation — You will confirm this when submitting.";
+  }
   return fieldLabels[id as DraftField] ?? documentRequestLabel(id);
 }
 
 function focusUnmet(id: string) {
   const target = document.getElementById(id);
-  const control = target?.matches("input,select,button") ? target : target?.querySelector<HTMLElement>("input,select,button");
+  const control = target?.matches("input,select,button")
+    ? target
+    : target?.querySelector<HTMLElement>("input,select,button");
   (control ?? target)?.focus();
 }
 
-function DayHoursFields({ day, initial, disabled, error }: { day: string; initial?: DayHours; disabled: boolean; error?: string }) {
-  const [state, setState] = useState(initial ? (initial.closed ? "CLOSED" : "OPEN") : "NOT_SET");
+function DayHoursFields({
+  day,
+  initial,
+  disabled,
+  error,
+}: {
+  day: string;
+  initial?: DayHours;
+  disabled: boolean;
+  error?: string;
+}) {
+  const [state, setState] = useState(
+    initial ? (initial.closed ? "CLOSED" : "OPEN") : "NOT_SET",
+  );
+  const errorId = error ? `${day}.error` : undefined;
+  const dayLabel = documentRequestLabel(day);
   return (
-    <div id={`operatingHours.${day}`} className="space-y-3 rounded-md border p-3">
-      <Label htmlFor={`${day}.state`}>{documentRequestLabel(day)} hours</Label>
-      <NativeSelect id={`${day}.state`} name={`${day}.state`} value={state} onChange={(event) => setState(event.target.value)} disabled={disabled} aria-invalid={!!error} aria-describedby={error ? `${day}.error` : undefined} className="w-full">
+    <div
+      id={`operatingHours.${day}`}
+      className="space-y-3 rounded-md border p-3"
+    >
+      <Label htmlFor={`${day}.state`}>{dayLabel} hours</Label>
+      <NativeSelect
+        id={`${day}.state`}
+        name={`${day}.state`}
+        value={state}
+        onChange={(event) => setState(event.target.value)}
+        disabled={disabled}
+        aria-invalid={!!error}
+        aria-describedby={errorId}
+        className="w-full"
+      >
         <NativeSelectOption value="NOT_SET">Not set</NativeSelectOption>
         <NativeSelectOption value="CLOSED">Closed</NativeSelectOption>
         <NativeSelectOption value="OPEN">Open</NativeSelectOption>
       </NativeSelect>
-      {state === "OPEN" && <div className="grid gap-3 sm:grid-cols-3">
-        <div><Label htmlFor={`${day}.opens`}>Opens on {documentRequestLabel(day)}</Label><Input id={`${day}.opens`} name={`${day}.opens`} type="time" defaultValue={initial?.opens ?? ""} disabled={disabled} aria-invalid={!!error} aria-describedby={error ? `${day}.error` : undefined} /></div>
-        <div><Label htmlFor={`${day}.closes`}>Closes on {documentRequestLabel(day)}</Label><Input id={`${day}.closes`} name={`${day}.closes`} type="time" defaultValue={initial?.closes ?? ""} disabled={disabled} aria-invalid={!!error} aria-describedby={error ? `${day}.error` : undefined} /></div>
-        <div className="flex items-center gap-2"><Checkbox id={`${day}.closesNextDay`} name={`${day}.closesNextDay`} value="true" defaultChecked={!!initial?.closesNextDay} disabled={disabled} aria-invalid={!!error} aria-describedby={error ? `${day}.error` : undefined} /><Label htmlFor={`${day}.closesNextDay`}>Closes next day for {documentRequestLabel(day)}</Label></div>
-      </div>}
-      {state === "CLOSED" && <p className="text-xs text-muted-foreground">Choosing Closed explicitly clears any saved times for this day when you save.</p>}
-      {error && <p id={`${day}.error`} className="text-sm text-destructive">{error}</p>}
+      {state === "OPEN" && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <Label htmlFor={`${day}.opens`}>Opens on {dayLabel}</Label>
+            <Input
+              id={`${day}.opens`}
+              name={`${day}.opens`}
+              type="time"
+              defaultValue={initial?.opens ?? ""}
+              disabled={disabled}
+              aria-invalid={!!error}
+              aria-describedby={errorId}
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${day}.closes`}>Closes on {dayLabel}</Label>
+            <Input
+              id={`${day}.closes`}
+              name={`${day}.closes`}
+              type="time"
+              defaultValue={initial?.closes ?? ""}
+              disabled={disabled}
+              aria-invalid={!!error}
+              aria-describedby={errorId}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${day}.closesNextDay`}
+              name={`${day}.closesNextDay`}
+              value="true"
+              defaultChecked={!!initial?.closesNextDay}
+              disabled={disabled}
+              aria-invalid={!!error}
+              aria-describedby={errorId}
+            />
+            <Label htmlFor={`${day}.closesNextDay`}>
+              Closes next day for {dayLabel}
+            </Label>
+          </div>
+        </div>
+      )}
+      {state === "CLOSED" && (
+        <p className="text-xs text-muted-foreground">
+          Choosing Closed explicitly clears any saved times for this day when
+          you save.
+        </p>
+      )}
+      {error && (
+        <p id={`${day}.error`} className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -441,11 +580,45 @@ function OperatorDrafts() {
               ))}
             </dl>
             <dl className="mb-4 grid gap-3 text-xs sm:grid-cols-2">
-              <div><dt className="font-medium">Preparation activities</dt><dd><strong>Saved:</strong> {describeSelection(conflict.preparationActivities)}</dd><dd><strong>After keeping edits:</strong> {describeSelection(conflictPreview?.preparationActivities)}</dd></div>
-              <div><dt className="font-medium">Service modes</dt><dd><strong>Saved:</strong> {describeSelection(conflict.serviceModes)}</dd><dd><strong>After keeping edits:</strong> {describeSelection(conflictPreview?.serviceModes)}</dd></div>
-              <div className="sm:col-span-2"><dt className="font-medium">Opening hours</dt><dd><strong>Saved:</strong> {describeHours(conflict.operatingHours)}</dd><dd><strong>After keeping edits:</strong> {describeHours(conflictPreview?.operatingHours)}</dd></div>
+              <div>
+                <dt className="font-medium">Preparation activities</dt>
+                <dd>
+                  <strong>Saved:</strong>{" "}
+                  {describeSelection(conflict.preparationActivities)}
+                </dd>
+                <dd>
+                  <strong>After keeping edits:</strong>{" "}
+                  {describeSelection(conflictPreview?.preparationActivities)}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium">Service modes</dt>
+                <dd>
+                  <strong>Saved:</strong>{" "}
+                  {describeSelection(conflict.serviceModes)}
+                </dd>
+                <dd>
+                  <strong>After keeping edits:</strong>{" "}
+                  {describeSelection(conflictPreview?.serviceModes)}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-medium">Opening hours</dt>
+                <dd>
+                  <strong>Saved:</strong> {describeHours(conflict.operatingHours)}
+                </dd>
+                <dd>
+                  <strong>After keeping edits:</strong>{" "}
+                  {describeHours(conflictPreview?.operatingHours)}
+                </dd>
+              </div>
             </dl>
-            <p className="mb-4 text-xs text-muted-foreground">Keep and review applies only your changed selections and hour values over the latest saved revision. If both tabs changed the same value, your explicit choice keeps your local value for review before saving.</p>
+            <p className="mb-4 text-xs text-muted-foreground">
+              Keep and review applies only your changed selections and hour
+              values over the latest saved revision. If both tabs changed the
+              same value, your explicit choice keeps your local value for
+              review before saving.
+            </p>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -641,20 +814,126 @@ function OperatorDrafts() {
         <legend className="font-medium">Operations</legend>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="businessType">Business type (required to submit)</Label>
-            <NativeSelect id="businessType" name="businessType" defaultValue={String((editDefaults ? editDefaults.businessType : draft.businessType) ?? "")} disabled={saving || !!conflict} aria-invalid={!!errors.businessType} aria-describedby={errors.businessType ? "businessType-error" : undefined} className="w-full">
-              <NativeSelectOption value="">Not set</NativeSelectOption><NativeSelectOption value="CAFE">Café</NativeSelectOption><NativeSelectOption value="RESTAURANT">Restaurant</NativeSelectOption>
+            <Label htmlFor="businessType">
+              Business type (required to submit)
+            </Label>
+            <NativeSelect
+              id="businessType"
+              name="businessType"
+              defaultValue={String(
+                (editDefaults
+                  ? editDefaults.businessType
+                  : draft.businessType) ?? "",
+              )}
+              disabled={saving || !!conflict}
+              aria-invalid={!!errors.businessType}
+              aria-describedby={
+                errors.businessType ? "businessType-error" : undefined
+              }
+              className="w-full"
+            >
+              <NativeSelectOption value="">Not set</NativeSelectOption>
+              <NativeSelectOption value="CAFE">Café</NativeSelectOption>
+              <NativeSelectOption value="RESTAURANT">
+                Restaurant
+              </NativeSelectOption>
             </NativeSelect>
-            {errors.businessType && <p id="businessType-error" className="text-sm text-destructive">{errors.businessType}</p>}
+            {errors.businessType && (
+              <p id="businessType-error" className="text-sm text-destructive">
+                {errors.businessType}
+              </p>
+            )}
           </div>
           {input("proposedOpeningDate", "Proposed opening date (YYYY-MM-DD)", true)}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <fieldset id="preparationActivities" aria-describedby={errors.preparationActivities ? "preparationActivities-error" : undefined}><legend className="mb-2 text-sm font-medium">Preparation activities (choose at least one)</legend>{activities.map((value) => <div key={value} className="flex items-center gap-2 py-1"><Checkbox id={`preparation-${value}`} name="preparationActivities" value={value} defaultChecked={(editDefaults?.preparationActivities ?? draft.preparationActivities ?? []).includes(value)} disabled={saving || !!conflict} /><Label htmlFor={`preparation-${value}`}>{documentRequestLabel(value)}</Label></div>)}{errors.preparationActivities && <p id="preparationActivities-error" className="text-sm text-destructive">{errors.preparationActivities}</p>}</fieldset>
-          <fieldset id="serviceModes" aria-describedby={errors.serviceModes ? "serviceModes-error" : undefined}><legend className="mb-2 text-sm font-medium">Service modes (choose at least one)</legend>{modes.map((value) => <div key={value} className="flex items-center gap-2 py-1"><Checkbox id={`service-${value}`} name="serviceModes" value={value} defaultChecked={(editDefaults?.serviceModes ?? draft.serviceModes ?? []).includes(value)} disabled={saving || !!conflict} /><Label htmlFor={`service-${value}`}>{documentRequestLabel(value)}</Label></div>)}{errors.serviceModes && <p id="serviceModes-error" className="text-sm text-destructive">{errors.serviceModes}</p>}</fieldset>
+          <fieldset
+            id="preparationActivities"
+            aria-describedby={
+              errors.preparationActivities
+                ? "preparationActivities-error"
+                : undefined
+            }
+          >
+            <legend className="mb-2 text-sm font-medium">
+              Preparation activities (choose at least one)
+            </legend>
+            {activities.map((value) => (
+              <div key={value} className="flex items-center gap-2 py-1">
+                <Checkbox
+                  id={`preparation-${value}`}
+                  name="preparationActivities"
+                  value={value}
+                  defaultChecked={(
+                    editDefaults?.preparationActivities ??
+                    draft.preparationActivities ??
+                    []
+                  ).includes(value)}
+                  disabled={saving || !!conflict}
+                />
+                <Label htmlFor={`preparation-${value}`}>
+                  {documentRequestLabel(value)}
+                </Label>
+              </div>
+            ))}
+            {errors.preparationActivities && (
+              <p
+                id="preparationActivities-error"
+                className="text-sm text-destructive"
+              >
+                {errors.preparationActivities}
+              </p>
+            )}
+          </fieldset>
+          <fieldset
+            id="serviceModes"
+            aria-describedby={
+              errors.serviceModes ? "serviceModes-error" : undefined
+            }
+          >
+            <legend className="mb-2 text-sm font-medium">
+              Service modes (choose at least one)
+            </legend>
+            {modes.map((value) => (
+              <div key={value} className="flex items-center gap-2 py-1">
+                <Checkbox
+                  id={`service-${value}`}
+                  name="serviceModes"
+                  value={value}
+                  defaultChecked={(
+                    editDefaults?.serviceModes ??
+                    draft.serviceModes ??
+                    []
+                  ).includes(value)}
+                  disabled={saving || !!conflict}
+                />
+                <Label htmlFor={`service-${value}`}>
+                  {documentRequestLabel(value)}
+                </Label>
+              </div>
+            ))}
+            {errors.serviceModes && (
+              <p id="serviceModes-error" className="text-sm text-destructive">
+                {errors.serviceModes}
+              </p>
+            )}
+          </fieldset>
         </div>
-        <fieldset className="space-y-3"><legend className="font-medium">Opening hours</legend>
-          {days.map((day) => <DayHoursFields key={day} day={day} initial={(editDefaults?.operatingHours ?? draft.operatingHours ?? {})[day]} disabled={saving || !!conflict} error={errors[`operatingHours.${day}`]} />)}
+        <fieldset className="space-y-3">
+          <legend className="font-medium">Opening hours</legend>
+          {days.map((day) => (
+            <DayHoursFields
+              key={day}
+              day={day}
+              initial={
+                (editDefaults?.operatingHours ?? draft.operatingHours ?? {})[
+                  day
+                ]
+              }
+              disabled={saving || !!conflict}
+              error={errors[`operatingHours.${day}`]}
+            />
+          ))}
         </fieldset>
       </fieldset>
       <section aria-labelledby="progress-heading" className="space-y-3 rounded-md border p-4">
