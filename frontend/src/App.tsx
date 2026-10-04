@@ -23,6 +23,7 @@ import { EvidenceUpload } from "@/EvidenceUpload";
 import { WorkspaceShell } from "@/WorkspaceShell";
 import {
   CasePanel,
+  FeedbackSlot,
   OfficerCases,
   statusLabel,
 } from "@/Workflow";
@@ -193,6 +194,16 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
   const [submissionTarget, setSubmissionTarget] = useState<HTMLDivElement | null>(null);
+  const [feedbackTargets, setFeedbackTargets] = useState<Record<string, HTMLElement>>({});
+  const registerFeedbackTarget = useCallback((target: string, element: HTMLDivElement | null) => {
+    setFeedbackTargets((current) => {
+      if (current[target] === element || (!element && !current[target])) return current;
+      const next = { ...current };
+      if (element) next[target] = element;
+      else delete next[target];
+      return next;
+    });
+  }, []);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("Loading your drafts…");
@@ -467,6 +478,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           {errors[name]}
         </p>
       )}
+      <FeedbackSlot target={name} onTarget={registerFeedbackTarget} />
     </div>
   );
 
@@ -492,6 +504,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           refreshRequest={reviewRequest}
           workingRevision={draft.revision}
           submissionTarget={submissionTarget}
+          feedbackTargets={feedbackTargets}
           submissionBlocked={saving || uploadingEvidence || !!conflict || !!pendingFileCount}
           saveAction={saveDraftAction}
           onActivityChange={setWorkflowBusy}
@@ -739,6 +752,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                 {errors.structure}
               </p>
             )}
+            <FeedbackSlot target="structure" onTarget={registerFeedbackTarget} />
           </div>
         </fieldset>
         <fieldset id="application-applicant" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
@@ -773,6 +787,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                 {errors.applicantRole}
               </p>
             )}
+            <FeedbackSlot target="applicantRole" onTarget={registerFeedbackTarget} />
           </div>
           {input("applicantEmail", "Contact email", true)}
           {input("applicantPhone", "Phone", true)}
@@ -809,6 +824,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                 {errors.unitApplicable}
               </p>
             )}
+            <FeedbackSlot target="unitApplicable" onTarget={registerFeedbackTarget} />
           </div>
           <div>
             {input(
@@ -842,6 +858,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                 {errors.tenure}
               </p>
             )}
+            <FeedbackSlot target="tenure" onTarget={registerFeedbackTarget} />
           </div>
         </fieldset>
         <fieldset id="application-operations" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
@@ -877,6 +894,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                   {errors.businessType}
                 </p>
               )}
+              <FeedbackSlot target="businessType" onTarget={registerFeedbackTarget} />
             </div>
             {input(
               "proposedOpeningDate",
@@ -924,6 +942,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                   {errors.preparationActivities}
                 </p>
               )}
+              <FeedbackSlot target="preparationActivities" onTarget={registerFeedbackTarget} />
             </fieldset>
             <fieldset
               id="serviceModes"
@@ -957,6 +976,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                   {errors.serviceModes}
                 </p>
               )}
+              <FeedbackSlot target="serviceModes" onTarget={registerFeedbackTarget} />
             </fieldset>
           </div>
         </fieldset>
@@ -1030,6 +1050,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
                     }
                   }}
                 />
+                <FeedbackSlot target={`documentRequest.${request.id}`} onTarget={registerFeedbackTarget} />
               </li>
             ))}
           </ul>

@@ -266,6 +266,14 @@ function SavedApplicationReview({ detail, renderReview, renderUnplaced }: { deta
   );
 }
 
+export function FeedbackSlot({ target, onTarget }: {
+  target: string;
+  onTarget: (target: string, element: HTMLDivElement | null) => void;
+}) {
+  const attach = useCallback((element: HTMLDivElement | null) => onTarget(target, element), [target, onTarget]);
+  return <div ref={attach} className="empty:hidden" />;
+}
+
 export function CasePanel({
   id,
   role,
@@ -278,6 +286,7 @@ export function CasePanel({
   submissionTarget,
   saveAction,
   submissionBlocked = false,
+  feedbackTargets,
 }: {
   id: string;
   role: api.User["role"];
@@ -290,6 +299,7 @@ export function CasePanel({
   submissionTarget?: HTMLElement | null;
   saveAction?: ReactNode;
   submissionBlocked?: boolean;
+  feedbackTargets?: Record<string, HTMLElement>;
 }) {
   const [detail, setDetail] = useState<api.CaseDetail | null>(null);
   const [error, setError] = useState("");
@@ -421,7 +431,7 @@ export function CasePanel({
           display(item.kind)}
       </p>
       <p className="break-words">{item.text}</p>
-      {item.target && (
+      {item.target && !feedbackTargets && (
         <a
           className="underline"
           href={`#${role === "OFFICER" ? "submitted-" : ""}${item.kind === "FIELD" ? item.target : `documentRequest.${item.target}`}`}
@@ -435,32 +445,15 @@ export function CasePanel({
         </p>
       )}
       {operatorRound && item.state === "OPEN" && (
-        <form
-          className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void command("response", {
-              issueId: item.id,
-              response: new FormData(event.currentTarget).get(
-                "response",
-              ),
-            });
-          }}
-        >
-          <Label htmlFor={`response-${item.id}`}>
-            Response to this request
-          </Label>
-          <Textarea
-            id={`response-${item.id}`}
-            name="response"
-            required
-            maxLength={2000}
-            defaultValue={item.response ?? ""}
-          />
-          <Button type="submit" size="sm" disabled={busy || synchronizing || !!pending}>
-            Save response
-          </Button>
-        </form>
+        <div className="space-y-2">
+          {feedbackTargets && item.kind === "FIELD" && <>
+            <p className="text-xs text-muted-foreground">Update the field above and save your changes, then respond to this request.</p>
+            <Button type="submit" form="application-editor" size="sm" variant="outline" disabled={disabled || submissionBlocked}>Save correction changes</Button>
+          </>}
+          <Label htmlFor={`response-${item.id}`}>Response to this request</Label>
+          <Textarea id={`response-${item.id}`} form={`response-form-${item.id}`} name="response" required maxLength={2000} defaultValue={item.response ?? ""} />
+          <Button type="submit" form={`response-form-${item.id}`} size="sm" disabled={disabled || submissionBlocked}>Save response</Button>
+        </div>
       )}
       {reviewing && actionable && item.state === "DRAFT" && (
         <Button
@@ -536,7 +529,7 @@ export function CasePanel({
   const submission = role === "OPERATOR" && (detail.status === "DRAFT" || operatorRound) ? (
     <section className="space-y-3 border-t pt-6" aria-label="Submission declarations">
       <h3 className="font-medium">{operatorRound ? "Resubmit corrections" : "Submit application"}</h3>
-      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href="#application-workflow">Review saved details</a>, then confirm both declarations afresh.</p>
+      <p className="text-sm text-muted-foreground">Save changes and finish uploads first. <a className="underline" href={feedbackTargets && operatorRound ? "#application-business" : "#application-workflow"}>Review saved details</a>, then confirm both declarations afresh.</p>
       {!!unmetSavedItems.length && <Alert><AlertTitle>Complete the remaining requirements</AlertTitle><AlertDescription>{unmetSavedItems.length} required item(s) are missing from your saved application. Complete the details or upload required evidence, then save.</AlertDescription></Alert>}
       <div className="flex items-center gap-2"><Checkbox id="accuracy" checked={accuracy} onCheckedChange={(value) => setAccuracy(value === true)} /><Label htmlFor="accuracy">I confirm this application is accurate.</Label></div>
       <div className="flex items-center gap-2"><Checkbox id="authority" checked={authority} onCheckedChange={(value) => setAuthority(value === true)} /><Label htmlFor="authority">I am authorised to apply for this business.</Label></div>
@@ -580,7 +573,15 @@ export function CasePanel({
       <p role="status" className="text-sm text-muted-foreground">
         {message}
       </p>
-      {savedReview && <SavedApplicationReview detail={detail} renderReview={renderReview} renderUnplaced={renderUnplaced} />}
+      {operatorRound && detail.issues.filter((item) => item.state === "OPEN").map((item) => <form key={item.id} id={`response-form-${item.id}`} onSubmit={(event) => {
+        event.preventDefault();
+        void command("response", { issueId: item.id, response: new FormData(event.currentTarget).get("response") });
+      }} />)}
+      {feedbackTargets && detail.issues.map((item) => {
+        const target = feedbackTargets[item.kind === "FIELD" ? item.target ?? "" : `documentRequest.${item.target}`];
+        return target ? createPortal(<section aria-label={`Officer feedback for ${fieldLabels[item.target ?? ""] ?? item.title ?? display(item.kind)}`}>{renderIssue(item)}</section>, target, item.id) : null;
+      })}
+      {savedReview && (!feedbackTargets || detail.status === "DRAFT") && <SavedApplicationReview detail={detail} renderReview={renderReview} renderUnplaced={renderUnplaced} />}
       {role === "OPERATOR" && ["APPLICATION_RECEIVED", "PRE_SITE_RESUBMITTED"].includes(detail.status) && <Alert><AlertTitle>{detail.status === "APPLICATION_RECEIVED" ? "Application submitted" : "Corrections resubmitted"}</AlertTitle><AlertDescription>Your submission has been received. There is nothing more to submit now; an officer will review it. Check this application or the notification bell for updates.</AlertDescription></Alert>}
       {submissionTarget ? createPortal(submission, submissionTarget) : submission}
       {role === "OFFICER" &&
@@ -595,7 +596,7 @@ export function CasePanel({
             Start review
           </Button>
         )}
-      {detail.status !== "DRAFT" && <Snapshot detail={detail} role={role} renderReview={!savedReview ? renderReview : undefined} renderUnplaced={!savedReview ? renderUnplaced : undefined} />}
+      {detail.status !== "DRAFT" && (feedbackTargets ? <details><summary className="cursor-pointer text-sm font-medium">Submitted versions</summary><Snapshot detail={detail} role={role} renderReview={!savedReview && !feedbackTargets ? renderReview : undefined} renderUnplaced={!savedReview && !feedbackTargets ? renderUnplaced : undefined} /></details> : <Snapshot detail={detail} role={role} renderReview={!savedReview && !feedbackTargets ? renderReview : undefined} renderUnplaced={!savedReview && !feedbackTargets ? renderUnplaced : undefined} />)}
       {reviewing && (
         <section className="space-y-4 border-t pt-6" aria-label="Complete officer review">
           <details className="space-y-3">
@@ -633,8 +634,9 @@ export function CasePanel({
           </form>
         </section>
       )}
+      <details open={feedbackTargets ? undefined : true}>
+        <summary className="cursor-pointer text-sm font-medium">Application history</summary>
       <section className="space-y-3" aria-label="Application history">
-        <h3 className="font-medium">Application history</h3>
         <ol className="space-y-2">
           {detail.events.map((event) => (
             <li
@@ -660,6 +662,7 @@ export function CasePanel({
           ))}
         </ol>
       </section>
+      </details>
     </section>
   );
 }

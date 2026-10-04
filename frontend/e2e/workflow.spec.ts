@@ -152,8 +152,12 @@ test("operator and officer complete targeted corrections, retained versions and 
   await expect(operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true })).toBeEnabled();
   await expect(operator.getByRole("textbox", { name: "Contact email (required to submit)", exact: true })).toBeDisabled();
   await operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true }).fill(`${name} Ltd`);
-  await operator
-    .getByRole("button", { name: "Save draft", exact: true })
+  const editableLegalField = operator.getByRole("textbox", { name: "Legal name (required to submit)", exact: true }).locator("..");
+  await expect(editableLegalField).toContainText("Correct registered legal name");
+  await expect(editableLegalField.getByRole("button", { name: "Save correction changes" })).toBeVisible();
+  await expect(operator.getByRole("region", { name: "Review saved application" })).toHaveCount(0);
+  await editableLegalField
+    .getByRole("button", { name: "Save correction changes", exact: true })
     .click();
   await expect(
     operator.getByRole("status").filter({ hasText: "Saved revision" }),
@@ -168,9 +172,9 @@ test("operator and officer complete targeted corrections, retained versions and 
   await additional.locator('input[type="file"]').setInputFiles({name:"consent.png",mimeType:"image/png",buffer:png});
   await additional.getByRole("button", {name:"Upload file",exact:true}).click();
   await expect(additional.getByRole("link", {name:"Open saved consent.png"})).toBeVisible();
-  const feedback = operator.getByRole("region", {name:"Review saved application"});
+  const feedback = operator;
   await expect(feedback.getByLabel("Officer feedback for Legal name")).toContainText("Correct registered legal name");
-  await feedback.getByLabel("Officer feedback for Legal name").screenshot({ path: testInfo.outputPath("operator-field-feedback.png") });
+  await editableLegalField.screenshot({ path: testInfo.outputPath("operator-field-feedback.png") });
   for (let index=0;index<3;index++) {
     await feedback.getByLabel("Response to this request").nth(index).fill("Requested correction completed");
     await feedback.getByRole("button", {name:"Save response"}).nth(index).click();

@@ -1078,3 +1078,39 @@ test("saving other fields does not clear retained operating hours", async () => 
   await screen.findByText(/Saved revision 2/);
   expect(api.saveDraft).toHaveBeenCalledWith(draft.id, 1, { tradingName: "New name" });
 });
+
+
+test("operator corrects the real field beside feedback and saves its response separately", async () => {
+  const user = userEvent.setup();
+  const draft = premisesDraft({ status: "PENDING_PRE_SITE_RESUBMISSION" });
+  const detail: api.CaseDetail = { id: draft.id, revision: draft.revision, status: draft.status, latestVersion: 1, round: 1, working: draft, versions: [], issues: [{ id: "name-issue", kind: "FIELD", target: "legalName", title: null, text: "Use the registered legal name", state: "OPEN", round: 1, reviewedVersion: 1, response: null }], events: [] };
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  vi.mocked(api.getCase).mockResolvedValue(detail);
+  const savedDraft = { ...draft, revision: 2, legalName: "Registered Cafe" };
+  const savedDetail = { ...detail, revision: 2, working: savedDraft };
+  vi.mocked(api.saveDraft).mockImplementation(async () => {
+    vi.mocked(api.getCase).mockResolvedValue(savedDetail);
+    return savedDraft;
+  });
+  vi.mocked(api.caseCommand).mockResolvedValue(savedDetail);
+  render(<App />);
+  await user.click(await screen.findByTitle("Cafe"));
+  const comment = await screen.findByText("Use the registered legal name");
+  const editor = screen.getByRole("textbox", { name: /^Legal name/ });
+  expect(editor.parentElement).toContainElement(comment);
+  expect(editor).toBeEnabled();
+  expect(screen.getByRole("textbox", { name: /^Contact email/ })).toBeDisabled();
+  expect(screen.queryByRole("link", { name: "Go to requested field" })).not.toBeInTheDocument();
+  expect(document.querySelector("form form")).toBeNull();
+  await user.clear(editor);
+  await user.type(editor, "Registered Cafe");
+  await user.click(screen.getByRole("button", { name: "Save correction changes" }));
+  await waitFor(() => expect(api.saveDraft).toHaveBeenCalledWith(draft.id, 1, { legalName: "Registered Cafe" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save response" })).toBeEnabled());
+  expect(api.caseCommand).not.toHaveBeenCalled();
+  await user.type(screen.getByLabelText("Response to this request"), "Updated registered name");
+  await user.click(screen.getByRole("button", { name: "Save response" }));
+  await waitFor(() => expect(api.caseCommand).toHaveBeenCalledWith(savedDetail, "response", { issueId: "name-issue", response: "Updated registered name" }, expect.any(String)));
+  expect(api.saveDraft).toHaveBeenCalledTimes(1);
+});
