@@ -151,13 +151,25 @@ describe("authentication workspace", () => {
       createdAt: "2026-10-04T00:00:00Z",
       ready: true,
     };
+    const currentPng = {
+      ...uploaded,
+      id: "upload-2",
+      filename: "current.png",
+      contentType: "image/png",
+    };
     const latest = {
       ...draft,
       revision: 2,
       applicantPhone: "+1 555 0100",
       operatingHours: { TUESDAY: { closed: true } },
+      completion: {
+        completed: 1,
+        required: 26,
+        percentage: 3,
+        unmetItemIds: [],
+      },
       documentRequests: [
-        { ...draft.documentRequests[0], currentUpload: uploaded },
+        { ...draft.documentRequests[0], currentUpload: currentPng },
       ],
     };
     vi.mocked(api.me).mockResolvedValue({
@@ -168,18 +180,13 @@ describe("authentication workspace", () => {
     vi.mocked(api.uploadEvidence).mockResolvedValue({
       upload: uploaded,
       revision: 1,
+      currentDraft: latest,
     });
-    vi.mocked(api.saveDraft)
-      .mockRejectedValueOnce({
-        status: 409,
-        message: "Changed elsewhere",
-        fieldErrors: {},
-      })
-      .mockResolvedValueOnce({
-        ...latest,
-        legalName: "Unsaved cafe",
-        revision: 3,
-      });
+    vi.mocked(api.saveDraft).mockResolvedValueOnce({
+      ...latest,
+      legalName: "Unsaved cafe",
+      revision: 3,
+    });
     vi.mocked(api.getDraft).mockResolvedValue(latest);
     render(<App />);
 
@@ -193,12 +200,24 @@ describe("authentication workspace", () => {
       new File(["%PDF-1.4"], "proof.pdf", { type: "application/pdf" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Upload file" }));
-    expect(await screen.findByText(/Saved proof.pdf/)).toBeVisible();
+    expect(
+      await screen.findByText(
+        /Recovered proof.pdf; the current file remains current.png/,
+      ),
+    ).toBeVisible();
     expect(api.getDraft).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(
+      await screen.findByText(/Upload receipt recovered from revision 1/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Open saved current.png/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: /Saved completion: 1 of 26/ }),
+    ).toBeVisible();
     await userEvent.click(
-      await screen.findByRole("button", { name: "Keep and review my edits" }),
+      screen.getByRole("button", { name: "Keep and review my edits" }),
     );
     expect(screen.getByLabelText(/Legal name/)).toHaveValue("Unsaved cafe");
     expect(screen.getByLabelText(/Phone/)).toHaveValue("+1 555 0100");

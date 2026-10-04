@@ -410,8 +410,13 @@ function EvidenceUpload({
       setFile(null);
       setKey(null);
       setProgress(100);
+      const currentUpload = result.currentDraft.documentRequests?.find(
+        (item) => item.id === request.id,
+      )?.currentUpload;
       setMessage(
-        `Saved ${result.upload.filename}. Local form edits were not saved or cleared.`,
+        currentUpload && currentUpload.id !== result.upload.id
+          ? `Recovered ${result.upload.filename}; the current file remains ${currentUpload.filename}. Review the current revision.`
+          : `Saved ${result.upload.filename}. Local form edits were not saved or cleared.`,
       );
     } catch (cause) {
       setMessage(
@@ -514,6 +519,7 @@ function OperatorDrafts() {
   const [editDefaults, setEditDefaults] = useState<api.Draft | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const createInFlight = useRef(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     api
@@ -554,20 +560,14 @@ function OperatorDrafts() {
     }
   }
 
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!draft) return;
-    if (saving || uploadingEvidence || conflict) return;
-    setSaving(true);
-    setStatus("Saving…");
-    setErrors({});
-    const data = new FormData(event.currentTarget);
+  function editsFrom(form: HTMLFormElement, base: api.Draft): PatchFields {
+    const data = new FormData(form);
     const localValues = Object.fromEntries(
       fieldNames.map((field) => [field, formValue(field, data.get(field))]),
     ) as DraftValues;
     const operations = operationValues(data);
-    const baseValues = draftValues(draft);
-    const fields: Record<string, unknown> = Object.fromEntries(
+    const baseValues = draftValues(base);
+    const fields: PatchFields = Object.fromEntries(
       fieldNames
         .filter((field) => localValues[field] !== baseValues[field])
         .map((field) => [field, localValues[field]]),
@@ -576,12 +576,24 @@ function OperatorDrafts() {
       if (
         canonical(value) !==
         canonical(
-          draft[field as keyof api.Draft] ??
+          base[field as keyof api.Draft] ??
             (field === "operatingHours" ? {} : []),
         )
-      )
+      ) {
         fields[field] = value;
+      }
     });
+    return fields;
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    if (saving || uploadingEvidence || conflict) return;
+    setSaving(true);
+    setStatus("Saving…");
+    setErrors({});
+    const fields = editsFrom(event.currentTarget, draft);
     try {
       const saved = await api.saveDraft(draft.id, draft.revision, fields);
       setDraft(saved);
@@ -712,7 +724,12 @@ function OperatorDrafts() {
   );
 
   return (
-    <form key={editorGeneration} className="space-y-6" onSubmit={save}>
+    <form
+      ref={formRef}
+      key={editorGeneration}
+      className="space-y-6"
+      onSubmit={save}
+    >
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Application draft</h2>
@@ -1179,24 +1196,28 @@ function OperatorDrafts() {
                 disabled={saving || uploadingEvidence || !!conflict}
                 onBusyChange={setUploadingEvidence}
                 onCommitted={(result) => {
-                  const updated = {
-                    ...draft,
-                    revision: result.revision,
-                    documentRequests: draft.documentRequests?.map((item) =>
-                      item.id === request.id
-                        ? { ...item, currentUpload: result.upload }
-                        : item,
-                    ),
-                  };
-                  setDraft(updated);
+                  const current = result.currentDraft;
+                  const localEdits = formRef.current
+                    ? editsFrom(formRef.current, draft)
+                    : {};
+                  setDraft(current);
                   setDrafts((items) =>
                     items.map((item) =>
-                      item.id === updated.id ? updated : item,
+                      item.id === current.id ? current : item,
                     ),
                   );
-                  // Keep the upload's exact comparison base. A concurrent later save
-                  // must enter stale-revision review rather than being adopted behind
-                  // uncontrolled weekday inputs and then overwritten.
+                  if (current.revision > result.revision) {
+                    setConflict(current);
+                    setConflictBase(draft);
+                    setConflictEdits(localEdits);
+                    setStatus(
+                      `Upload receipt recovered from revision ${result.revision}, but revision ${current.revision} is current. Review the current file and retained local edits.`,
+                    );
+                  } else {
+                    setStatus(
+                      `Saved evidence at revision ${current.revision}. Local form edits were not saved or cleared.`,
+                    );
+                  }
                 }}
               />
             </li>

@@ -3,6 +3,7 @@ package com.licensing.platform;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.licensing.platform.draft.DraftService;
+import com.licensing.platform.draft.EvidenceFaults;
 import com.licensing.platform.draft.EvidenceService;
 import java.nio.file.*;
 import java.util.*;
@@ -22,11 +23,13 @@ class EvidenceIntegrationTest {
   @Autowired JdbcTemplate db;
   @Autowired PasswordEncoder encoder;
   @Autowired DataSource dataSource;
+  @Autowired EvidenceFaults faults;
   private static final byte[] PNG = Base64.getDecoder().decode(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+"
       + "A8AAQUBAScY42YAAAAASUVORK5CYII=");
   @BeforeEach
   void seed() throws Exception {
+    faults.reset();
     db.update("delete from evidence_upload_retry");
     db.update("update document_request set current_upload_id=null");
     db.update("delete from evidence_upload");
@@ -226,5 +229,84 @@ class EvidenceIntegrationTest {
     } finally {
       pool.shutdownNow();
     }
+  }
+  @Test
+  void definiteDiskAndDatabaseFailuresPreserveThePreviousFile()
+      throws Exception {
+    var draft = draft();
+    UUID request = request(draft);
+    var previous = evidence.upload(draft.id(), request, "owner", 0, "previous",
+                                   file("previous.png", PNG));
+
+    faults.failNext(EvidenceFaults.Failure.DISK_WRITE);
+    assertThrows(RuntimeException.class,
+                 ()
+                     -> evidence.upload(draft.id(), request, "owner",
+                                        previous.revision(), "disk",
+                                        file("disk.png", PNG)));
+    faults.failNext(EvidenceFaults.Failure.DATABASE_ROLLBACK);
+    assertThrows(RuntimeException.class,
+                 ()
+                     -> evidence.upload(draft.id(), request, "owner",
+                                        previous.revision(), "database",
+                                        file("database.png", PNG)));
+
+    var retained = drafts.get(draft.id(), "owner")
+                       .documentRequests()
+                       .stream()
+                       .filter(item -> item.id().equals(request))
+                       .findFirst()
+                       .orElseThrow()
+                       .currentUpload();
+    assertEquals(previous.upload().id(), retained.id());
+    assertEquals(1, db.queryForObject("select count(*) from evidence_upload",
+                                      Integer.class));
+    assertEquals(1,
+                 db.queryForObject("select count(*) from evidence_upload_retry",
+                                   Integer.class));
+    assertDoesNotThrow(
+        () -> evidence.download(draft.id(), previous.upload().id(), "owner"));
+  }
+
+  @Test
+  void committedResponseAndAmbiguousCommitFaultsNeverDeleteCommittedBytes() {
+    for (EvidenceFaults.Failure failure :
+         List.of(EvidenceFaults.Failure.COMMITTED_RESPONSE,
+                 EvidenceFaults.Failure.AMBIGUOUS_COMMIT)) {
+      var draft = draft();
+      UUID request = request(draft);
+      String key = failure.name();
+      faults.failNext(failure);
+      assertThrows(RuntimeException.class,
+                   ()
+                       -> evidence.upload(draft.id(), request, "owner", 0, key,
+                                          file("committed.png", PNG)));
+      var recovered = evidence.upload(draft.id(), request, "owner", 0, key,
+                                      file("committed.png", PNG));
+      assertEquals(1, recovered.revision());
+      assertDoesNotThrow(()
+                             -> evidence.download(
+                                 draft.id(), recovered.upload().id(), "owner"));
+    }
+  }
+  @Test
+  void parserDeadlineKillsWorkerCleansTemporaryDataAndReleasesPermit()
+      throws Exception {
+    var timedOut = draft();
+    faults.failNext(EvidenceFaults.Failure.PARSER_TIMEOUT);
+    assertThrows(RuntimeException.class,
+                 ()
+                     -> evidence.upload(timedOut.id(), request(timedOut),
+                                        "owner", 0, "timeout",
+                                        file("timeout.png", PNG)));
+    try (var staging = Files.list(Path.of("target/test-evidence/staging"))) {
+      assertTrue(staging.noneMatch(
+          path -> path.getFileName().toString().startsWith("validate-")));
+    }
+    var unrelated = draft();
+    assertEquals(1, evidence
+                        .upload(unrelated.id(), request(unrelated), "owner", 0,
+                                "after-timeout", file("valid.png", PNG))
+                        .revision());
   }
 }

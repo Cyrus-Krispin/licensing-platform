@@ -26,9 +26,9 @@ public class EvidenceAuthorizationInterceptor implements HandlerInterceptor {
         "applications".equals(segments[2]) &&
         "evidence".equals(segments[4]) && "requests".equals(segments[5])) {
       Principal principal = request.getUserPrincipal();
-      evidence.authorizeTarget(UUID.fromString(segments[3]),
-                               UUID.fromString(segments[6]),
-                               principal.getName());
+      evidence.authorizeBeforeMultipart(
+          UUID.fromString(segments[3]), UUID.fromString(segments[6]),
+          principal.getName(), request.getHeader("Idempotency-Key"));
     }
     return true;
   }

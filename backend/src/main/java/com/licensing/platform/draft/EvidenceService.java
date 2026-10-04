@@ -1,8 +1,7 @@
 package com.licensing.platform.draft;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import java.awt.image.BufferedImage;
-import java.io.*;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -12,18 +11,14 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import javax.imageio.*;
-import javax.imageio.stream.ImageInputStream;
 import javax.sql.DataSource;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.io.IOUtils;
-import org.apache.pdfbox.io.RandomAccessReadBuffer;
-import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,13 +28,16 @@ public class EvidenceService {
   private static final Semaphore PARSERS = new Semaphore(2, true);
   private final JdbcTemplate db;
   private final TransactionTemplate tx;
+  private final EvidenceFaults faults;
   private final Path root;
   private final boolean postgres;
-  EvidenceService(JdbcTemplate db, TransactionTemplate tx, DataSource ds,
+  EvidenceService(JdbcTemplate db, TransactionTemplate tx,
+                  EvidenceFaults faults, DataSource ds,
                   @Value("${licensing.file-storage-path:./data/private-files}")
                   String path) throws Exception {
     this.db = db;
     this.tx = tx;
+    this.faults = faults;
     root = Path.of(path).toAbsolutePath().normalize();
     Files.createDirectories(root.resolve("staging"));
     Files.createDirectories(root.resolve("objects"));
@@ -51,8 +49,7 @@ public class EvidenceService {
                              long expected, String key, MultipartFile part) {
     if (key == null || key.isBlank() || key.length() > 100)
       bad("Idempotency-Key must contain 1–100 characters");
-    authorizeTarget(app, request,
-                    actor); // authorization precedes multipart reading/staging
+    authorizeBeforeMultipart(app, request, actor, key);
     byte[] bytes = read(part);
     String filename = sanitize(part.getOriginalFilename());
     String type = validate(bytes, filename, part.getContentType());
@@ -64,6 +61,7 @@ public class EvidenceService {
     Path staging = root.resolve("staging").resolve(storage + ".part"),
          target = root.resolve("objects").resolve(storage);
     try {
+      faults.beforeDiskWrite();
       Files.write(staging, bytes);
       try {
         Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
@@ -75,11 +73,14 @@ public class EvidenceService {
             s
             -> commit(app, request, actor, expected, key, fingerprint, id,
                       storage, filename, type, bytes.length, hash));
+        faults.afterCommittedTransaction();
         if (!result.upload.id.equals(id))
           quiet(target);
         return result;
       } catch (RuntimeException e) {
-        deleteIfDefinitelyUnreferenced(storage, target);
+        // Cleanup is driven only by an explicit ROLLED_BACK completion
+        // callback. UNKNOWN or commit-then-throw outcomes retain bytes for
+        // reconciliation.
         throw e;
       }
     } catch (IOException e) {
@@ -105,6 +106,7 @@ public class EvidenceService {
       return new UploadResult(load(old.get().upload, app, actor),
                               old.get().revision);
     }
+    registerRollbackCleanup(storage);
     var access = access(app, request, actor, true);
     if (access.revision != expected)
       throw new ApiException(HttpStatus.CONFLICT, "stale_revision",
@@ -124,6 +126,7 @@ public class EvidenceService {
                   + "where id=? and revision=?",
               Timestamp.from(Instant.now()), app, expected);
     long revision = expected + 1;
+    faults.beforeReceiptInsert();
     db.update(
         "insert into "
             + "evidence_upload_retry(actor_username,application_id,request_"
@@ -143,6 +146,23 @@ public class EvidenceService {
       throw integrity();
     }
   }
+  public void authorizeBeforeMultipart(UUID app, UUID request, String actor,
+                                       String key) {
+    if (key == null || key.isBlank() || key.length() > 100) {
+      bad("Idempotency-Key must contain 1–100 characters");
+    }
+    authorizeTarget(app, request, actor);
+    boolean receiptExists =
+        !db.query("select 1 from evidence_upload_retry where actor_username=? "
+                      + "and application_id=? and request_id=? and "
+                      + "idempotency_key=?",
+                  (rs, n) -> 1, actor, app, request, key)
+             .isEmpty();
+    if (!receiptExists) {
+      access(app, request, actor, false);
+    }
+  }
+
   public void authorizeTarget(UUID app, UUID request, String actor) {
     boolean owned =
         !db.query("select 1 from application_draft d join "
@@ -154,17 +174,16 @@ public class EvidenceService {
       throw new ApiException(HttpStatus.NOT_FOUND, "not_found",
                              "Draft evidence request not found");
   }
-  private void deleteIfDefinitelyUnreferenced(String storage, Path target) {
-    try {
-      Integer references = db.queryForObject(
-          "select count(*) from evidence_upload where storage_key=?",
-          Integer.class, storage);
-      if (references != null && references == 0)
-        quiet(target);
-    } catch (RuntimeException uncertainDatabaseState) {
-      // Retain uncertain bytes for offline reconciliation; they may have
-      // committed.
-    }
+  private void registerRollbackCleanup(String storage) {
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCompletion(int status) {
+            if (status == STATUS_ROLLED_BACK) {
+              quiet(root.resolve("objects").resolve(storage));
+            }
+          }
+        });
   }
   private Access access(UUID app, UUID request, String actor, boolean lock) {
     String suffix =
@@ -257,54 +276,92 @@ public class EvidenceService {
              .contains(supplied.toLowerCase(Locale.ROOT)))
       throw invalid(
           "The supplied content type does not match the detected file format");
+    validateInWorker(b, type);
+    return type;
+  }
+  private void validateInWorker(byte[] bytes, String type) {
+    boolean acquired = false;
+    Path work = null;
     try {
-      if (!PARSERS.tryAcquire(5, TimeUnit.SECONDS))
+      acquired = PARSERS.tryAcquire(5, TimeUnit.SECONDS);
+      if (!acquired) {
         throw new ApiException(
             HttpStatus.SERVICE_UNAVAILABLE, "parser_busy",
             "File validation is busy; retry with the same key");
-      try {
-        if (type.equals("application/pdf")) {
-          try (RandomAccessReadBuffer source = new RandomAccessReadBuffer(b);
-               PDDocument d = Loader.loadPDF(
-                   source, "", IOUtils.createTempFileOnlyStreamCache())) {
-            if (d.isEncrypted())
-              throw invalid(
-                  "Encrypted or password-protected PDFs are not accepted");
-            if (d.getNumberOfPages() < 1 || d.getNumberOfPages() > 2000)
-              throw invalid("PDF must contain 1–2,000 pages");
-          }
-        } else
-          parseImage(b);
-      } finally {
+      }
+      work = Files.createTempDirectory(root.resolve("staging"), "validate-");
+      Path input = work.resolve("input");
+      Files.write(input, bytes);
+      Process process =
+          new ProcessBuilder(
+              validationCommand(input, type, faults.consumeParserTimeout()))
+              .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+              .redirectError(ProcessBuilder.Redirect.DISCARD)
+              .start();
+      if (!process.waitFor(5, TimeUnit.SECONDS)) {
+        process.destroyForcibly();
+        process.waitFor();
+        throw invalid("The file exceeded the structural validation time limit");
+      }
+      if (process.exitValue() != 0) {
+        throw invalid("The file is damaged, encrypted, unsupported, or "
+                      + "exceeds structural limits");
+      }
+    } catch (ApiException exception) {
+      throw exception;
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new ApiException(
+          HttpStatus.SERVICE_UNAVAILABLE, "parser_interrupted",
+          "File validation was interrupted; retry with the same key");
+    } catch (IOException exception) {
+      throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                             "parser_unavailable",
+                             "File validation is temporarily unavailable; "
+                                 + "retry with the same key");
+    } finally {
+      deleteTree(work);
+      if (acquired) {
         PARSERS.release();
       }
-    } catch (ApiException e) {
-      throw e;
-    } catch (Exception e) {
-      throw invalid(
-          "The file is damaged, unsupported, or cannot be structurally parsed");
     }
-    return type;
   }
-  private void parseImage(byte[] b) throws IOException {
-    try (ImageInputStream in =
-             ImageIO.createImageInputStream(new ByteArrayInputStream(b))) {
-      var it = ImageIO.getImageReaders(in);
-      if (!it.hasNext())
-        throw invalid("The image cannot be decoded");
-      var r = it.next();
-      try {
-        r.setInput(in, true, true);
-        int w = r.getWidth(0), h = r.getHeight(0);
-        if (w < 1 || h < 1 || w > 20000 || h > 20000 ||
-            (long)w * h > 100_000_000)
-          throw invalid("Image dimensions are outside the supported bounds");
-        BufferedImage image = r.read(0);
-        if (image == null)
-          throw invalid("The image cannot be decoded");
-      } finally {
-        r.dispose();
-      }
+
+  private List<String> validationCommand(Path input, String type,
+                                         boolean forceTimeout) {
+    String java =
+        Path.of(System.getProperty("java.home"), "bin", "java").toString();
+    String classPath = System.getProperty("java.class.path");
+    List<String> command = new ArrayList<>();
+    command.add(java);
+    command.add("-Xms16m");
+    command.add("-Xmx96m");
+    command.add("-Djava.io.tmpdir=" + input.getParent());
+    command.add("-cp");
+    command.add(classPath);
+    if (!classPath.contains(System.getProperty("path.separator")) &&
+        classPath.endsWith(".jar")) {
+      command.add("-Dloader.main=" + EvidenceValidationWorker.class.getName());
+      command.add("org.springframework.boot.loader.launch.PropertiesLauncher");
+    } else {
+      command.add(EvidenceValidationWorker.class.getName());
+    }
+    command.add(input.toString());
+    command.add(type);
+    if (forceTimeout) {
+      command.add("--sleep");
+    }
+    return command;
+  }
+
+  private static void deleteTree(Path directory) {
+    if (directory == null)
+      return;
+    try (var paths = Files.walk(directory)) {
+      paths.sorted(Comparator.reverseOrder()).forEach(EvidenceService::quiet);
+    } catch (IOException ignored) {
+      // A validation directory is uncommitted and reconciliation also removes
+      // staging.
     }
   }
   private String sanitize(String raw) {

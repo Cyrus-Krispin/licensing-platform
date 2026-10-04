@@ -70,7 +70,11 @@ export type EvidenceUpload = {
   createdAt: string;
   ready: boolean;
 };
-export type UploadResult = { upload: EvidenceUpload; revision: number };
+export type UploadResult = {
+  upload: EvidenceUpload;
+  revision: number;
+  currentDraft: Draft;
+};
 export async function uploadEvidence(
   applicationId: string,
   requestId: string,
