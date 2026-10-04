@@ -99,21 +99,25 @@ for (const account of [
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         "base64",
       );
+      const longFilename = `${"X".repeat(251)}.png`;
       await registration.getByLabel("Upload evidence").setInputFiles({
-        name: "registration.png",
+        name: longFilename,
         mimeType: "image/png",
         buffer: png,
       });
       await registration.getByRole("button", { name: "Upload file" }).click();
       await expect(
-        registration.getByRole("link", { name: /Open saved registration.png/ }),
+        registration.getByRole("link", { name: `Open saved ${longFilename}` }),
       ).toBeVisible();
+      await expect(
+        registration.getByRole("link", { name: `Open saved ${longFilename}` }),
+      ).toHaveAttribute("title", longFilename);
       await expect(page.getByLabel(/Legal name/)).toHaveValue(
         "Unsaved after upload",
       );
       const downloaded = await page.request.get(
         (await registration
-          .getByRole("link", { name: /Open saved registration.png/ })
+          .getByRole("link", { name: `Open saved ${longFilename}` })
           .getAttribute("href")) as string,
       );
       expect(downloaded.status()).toBe(200);

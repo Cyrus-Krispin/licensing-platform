@@ -309,4 +309,46 @@ class EvidenceIntegrationTest {
                                 "after-timeout", file("valid.png", PNG))
                         .revision());
   }
+  @Test
+  void interruptedSlowWorkerIsReapedBeforeWorkspaceAndPermitRelease()
+      throws Exception {
+    var interruptedDraft = draft();
+    faults.failNext(EvidenceFaults.Failure.PARSER_TIMEOUT);
+    var executor = Executors.newSingleThreadExecutor();
+    Future<?> upload = executor.submit(
+        ()
+            -> evidence.upload(interruptedDraft.id(), request(interruptedDraft),
+                               "owner", 0, "interrupted",
+                               file("interrupted.png", PNG)));
+    Path staging = Path.of("target/test-evidence/staging");
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      try (var paths = Files.list(staging)) {
+        if (paths.anyMatch(
+                path -> path.getFileName().toString().startsWith("validate-")))
+          break;
+      }
+      Thread.sleep(20);
+    }
+    assertTrue(upload.cancel(true));
+    executor.shutdown();
+    assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    try (var paths = Files.list(staging)) {
+      assertTrue(paths.noneMatch(
+          path -> path.getFileName().toString().startsWith("validate-")));
+    }
+    assertTrue(ProcessHandle.current().descendants().noneMatch(
+        ProcessHandle::isAlive));
+
+    var first = draft();
+    var second = draft();
+    assertEquals(1, evidence
+                        .upload(first.id(), request(first), "owner", 0,
+                                "reuse-one", file("one.png", PNG))
+                        .revision());
+    assertEquals(1, evidence
+                        .upload(second.id(), request(second), "owner", 0,
+                                "reuse-two", file("two.png", PNG))
+                        .revision());
+  }
 }

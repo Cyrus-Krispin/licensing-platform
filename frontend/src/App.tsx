@@ -429,11 +429,12 @@ function EvidenceUpload({
   }
   const inputId = `evidence-${request.id}`;
   return (
-    <div className="mt-3 space-y-2">
+    <div className="mt-3 min-w-0 space-y-2">
       {request.currentUpload && (
-        <p className="text-xs">
+        <p className="min-w-0 text-xs">
           <a
-            className="underline"
+            className="block max-w-full truncate underline"
+            title={request.currentUpload.filename}
             target="_blank"
             rel="noreferrer"
             href={`/api/applications/${applicationId}/evidence/uploads/${request.currentUpload.id}`}
@@ -463,6 +464,7 @@ function EvidenceUpload({
               type="file"
               accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
               disabled={disabled || uploading}
+              className="min-w-0 max-w-full"
               onChange={(event) => choose(event.target.files?.item(0) ?? null)}
             />
             <p className="mt-1 text-xs text-muted-foreground">
@@ -494,7 +496,10 @@ function EvidenceUpload({
             />
           )}
           {message && (
-            <p role="status" className="text-xs">
+            <p
+              role="status"
+              className="break-words text-xs [overflow-wrap:anywhere]"
+            >
               {message}
             </p>
           )}
@@ -1176,7 +1181,7 @@ function OperatorDrafts() {
               tabIndex={-1}
               key={request.id}
               aria-label={`${documentRequestLabel(request.type)} requirement`}
-              className="rounded-md border border-border p-3 text-sm"
+              className="min-w-0 overflow-hidden rounded-md border border-border p-3 text-sm"
             >
               <p className="font-medium">
                 {documentRequestLabel(request.type)}

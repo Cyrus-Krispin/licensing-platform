@@ -35,3 +35,6 @@ comm -23 "$objects_list" "$referenced" | while IFS= read -r orphan; do
 done
 # With the enforced offline precondition, staging parts cannot belong to active writers.
 find "$staging" -mindepth 1 -maxdepth 1 -type f -name '*.part' -delete
+# Worker directories are generated only with this prefix and are never committed.
+# Do not follow symlinks or cross into an unexpected mount.
+find -P "$staging" -mindepth 1 -maxdepth 1 -type d -name 'validate-*' -exec rm -rf -- {} +

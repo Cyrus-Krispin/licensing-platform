@@ -281,7 +281,9 @@ public class EvidenceService {
   }
   private void validateInWorker(byte[] bytes, String type) {
     boolean acquired = false;
+    boolean interrupted = false;
     Path work = null;
+    Process process = null;
     try {
       acquired = PARSERS.tryAcquire(5, TimeUnit.SECONDS);
       if (!acquired) {
@@ -292,15 +294,13 @@ public class EvidenceService {
       work = Files.createTempDirectory(root.resolve("staging"), "validate-");
       Path input = work.resolve("input");
       Files.write(input, bytes);
-      Process process =
+      process =
           new ProcessBuilder(
               validationCommand(input, type, faults.consumeParserTimeout()))
               .redirectOutput(ProcessBuilder.Redirect.DISCARD)
               .redirectError(ProcessBuilder.Redirect.DISCARD)
               .start();
       if (!process.waitFor(5, TimeUnit.SECONDS)) {
-        process.destroyForcibly();
-        process.waitFor();
         throw invalid("The file exceeded the structural validation time limit");
       }
       if (process.exitValue() != 0) {
@@ -310,7 +310,7 @@ public class EvidenceService {
     } catch (ApiException exception) {
       throw exception;
     } catch (InterruptedException exception) {
-      Thread.currentThread().interrupt();
+      interrupted = true;
       throw new ApiException(
           HttpStatus.SERVICE_UNAVAILABLE, "parser_interrupted",
           "File validation was interrupted; retry with the same key");
@@ -320,11 +320,30 @@ public class EvidenceService {
                              "File validation is temporarily unavailable; "
                                  + "retry with the same key");
     } finally {
+      interrupted |= terminateAndAwait(process);
       deleteTree(work);
       if (acquired) {
         PARSERS.release();
       }
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
     }
+  }
+
+  private static boolean terminateAndAwait(Process process) {
+    if (process == null || !process.isAlive())
+      return false;
+    process.destroyForcibly();
+    boolean interrupted = false;
+    while (process.isAlive()) {
+      try {
+        process.waitFor();
+      } catch (InterruptedException exception) {
+        interrupted = true;
+      }
+    }
+    return interrupted;
   }
 
   private List<String> validationCommand(Path input, String type,
