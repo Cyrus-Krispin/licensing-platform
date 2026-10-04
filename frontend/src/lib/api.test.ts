@@ -1,5 +1,12 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { login, logout } from "./api";
+import {
+  createDraft,
+  getDraft,
+  listDrafts,
+  login,
+  logout,
+  saveDraft,
+} from "./api";
 
 beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 
@@ -103,4 +110,109 @@ test("returns role workspace data on success", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(json(data));
   await expect(workspace("OFFICER")).resolves.toEqual(data);
   expect(fetch).toHaveBeenCalledWith("/api/workspaces/officer");
+});
+
+test("lists, creates, and saves drafts with fresh CSRF", async () => {
+  const draft = { id: "d1", revision: 0, status: "DRAFT" };
+  vi.mocked(fetch).mockResolvedValueOnce(json([draft]));
+  await expect(listDrafts()).resolves.toEqual([draft]);
+  vi.mocked(fetch).mockResolvedValueOnce(json(draft));
+  await expect(getDraft("d1")).resolves.toEqual(draft);
+  expect(fetch).toHaveBeenLastCalledWith("/api/applications/d1");
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json({ token: "a", headerName: "X-XSRF-TOKEN" }))
+    .mockResolvedValueOnce(json(draft, 201));
+  await expect(createDraft("retry-key")).resolves.toEqual(draft);
+  expect(fetch).toHaveBeenLastCalledWith(
+    "/api/applications",
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({
+        "Idempotency-Key": "retry-key",
+        "X-XSRF-TOKEN": "a",
+      }),
+    }),
+  );
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json({ token: "b", headerName: "X-XSRF-TOKEN" }))
+    .mockResolvedValueOnce(json({ ...draft, revision: 1 }));
+  await expect(
+    saveDraft("d1", 0, { legalName: "Cafe" }),
+  ).resolves.toMatchObject({ revision: 1 });
+});
+
+test("returns draft field and stale-save errors", async () => {
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(json({ token: "a", headerName: "X-XSRF-TOKEN" }))
+    .mockResolvedValueOnce(
+      json(
+        {
+          message: "Correct fields",
+          fieldErrors: { applicantEmail: "Enter a valid email address" },
+        },
+        422,
+      ),
+    );
+  await expect(
+    saveDraft("d1", 0, { applicantEmail: "bad" }),
+  ).rejects.toMatchObject({
+    status: 422,
+    fieldErrors: { applicantEmail: "Enter a valid email address" },
+  });
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+  await expect(listDrafts()).rejects.toThrow("temporarily unavailable");
+});
+
+test("uploads evidence with CSRF, retry key, and progress", async () => {
+  const { uploadEvidence } = await import("./api");
+  vi.mocked(fetch).mockResolvedValueOnce(
+    json({ token: "upload-csrf", headerName: "X-XSRF-TOKEN" }),
+  );
+  class FakeRequest {
+    static created: FakeRequest | undefined;
+    constructor() {
+      FakeRequest.created = this;
+    }
+    upload: {
+      onprogress:
+        | ((event: {
+            lengthComputable: boolean;
+            loaded: number;
+            total: number;
+          }) => void)
+        | null;
+    } = { onprogress: null };
+    onerror: (() => void) | null = null;
+    onload: (() => void) | null = null;
+    status = 200;
+    responseText = JSON.stringify({ upload: { id: "u1" }, revision: 2 });
+    open = vi.fn();
+    setRequestHeader = vi.fn();
+    send = vi.fn(() => {
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 });
+      this.onload?.();
+    });
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeRequest);
+  const progress = vi.fn();
+
+  await expect(
+    uploadEvidence(
+      "a1",
+      "r1",
+      1,
+      "retry",
+      new File(["x"], "proof.png"),
+      progress,
+    ),
+  ).resolves.toMatchObject({ revision: 2 });
+  expect(FakeRequest.created?.open).toHaveBeenCalledWith(
+    "POST",
+    "/api/applications/a1/evidence/requests/r1?expectedRevision=1",
+  );
+  expect(FakeRequest.created?.setRequestHeader).toHaveBeenCalledWith(
+    "Idempotency-Key",
+    "retry",
+  );
+  expect(progress).toHaveBeenCalledWith(50);
 });

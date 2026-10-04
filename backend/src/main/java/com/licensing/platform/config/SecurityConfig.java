@@ -47,6 +47,8 @@ public class SecurityConfig {
                                         .hasRole("OPERATOR")
                                         .requestMatchers("/api/workspaces/officer")
                                         .hasRole("OFFICER")
+                                        .requestMatchers("/api/applications/**", "/api/applications")
+                                        .hasRole("OPERATOR")
                                         .anyRequest()
                                         .authenticated())
                 .exceptionHandling(
