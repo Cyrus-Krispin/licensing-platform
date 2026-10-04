@@ -257,7 +257,7 @@ public class DraftService {
                 database.query(
                                 BASE_SELECT
                                         + " where id=? and owner_username=?"
-                                        + " and status='DRAFT' for update",
+                                        + " for update",
                                 draftRowMapper(),
                                 id,
                                 owner)
@@ -275,6 +275,7 @@ public class DraftService {
                     "stale_revision",
                     "This draft changed elsewhere. Reload the saved draft; your unsaved values have been retained.");
         }
+        WorkflowPermissions.fields(database, objectMapper, current, values);
         validateConsistency(current, values);
         List<String> assignments = new ArrayList<>();
         List<Object> arguments = new ArrayList<>();
@@ -299,7 +300,7 @@ public class DraftService {
                 database.update(
                         "update application_draft set "
                                 + String.join(", ", assignments)
-                                + " where id=? and owner_username=? and status='DRAFT' and revision=?",
+                                + " where id=? and owner_username=? and revision=?",
                         arguments.toArray());
         if (changed == 0) {
             throw new IllegalStateException("Locked draft disappeared during save");

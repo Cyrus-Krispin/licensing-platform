@@ -8,3 +8,6 @@ backend/target/
 *.tsbuildinfo
 frontend/playwright-report/
 frontend/test-results/
+
+backend/data/
+error.log

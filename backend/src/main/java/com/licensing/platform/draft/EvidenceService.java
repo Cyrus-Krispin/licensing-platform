@@ -119,6 +119,9 @@ public class EvidenceService {
                   + "created_at) values(?,?,?,?,?,?,?,?,?,?)",
               id, app, request, storage, filename, type, size, hash, actor,
               Timestamp.from(Instant.now()));
+    Instant queuedAt = Instant.now();
+    db.update("insert into simulated_check(upload_id,state,attempt,queued_at,updated_at) values(?,'QUEUED',1,?,?)",
+              id, Timestamp.from(queuedAt), Timestamp.from(queuedAt));
     db.update("update document_request set current_upload_id=? where id=? "
                   + "and application_id=?",
               id, request, app);
@@ -193,7 +196,7 @@ public class EvidenceService {
                      + "join document_request r on r.application_id=d.id "
                      + "where d.id=? "
                      +
-                     "and r.id=? and d.owner_username=? and d.status='DRAFT'" +
+                     "and r.id=? and d.owner_username=?" +
                      suffix,
                  (rs, n)
                      -> new Access(rs.getLong(1), rs.getString(2)),
@@ -204,6 +207,7 @@ public class EvidenceService {
                 ()
                     -> new ApiException(HttpStatus.NOT_FOUND, "not_found",
                                         "Draft evidence request not found"));
+    WorkflowPermissions.upload(db, app, request);
     if (!found.applicability.equals("APPLICABLE"))
       throw new ApiException(
           HttpStatus.CONFLICT, "request_not_applicable",
@@ -220,14 +224,14 @@ public class EvidenceService {
                 "type,u.byte_size,u.sha256,u.created_at from evidence_upload u "
                 + "join application_draft d on d.id=u.application_id where "
                 + "u.id=? "
-                + "and u.application_id=? and d.owner_username=?",
+                + "and u.application_id=? and (d.owner_username=? or (exists(select 1 from app_user a where a.username=? and a.role='OFFICER') and exists(select 1 from submission_upload s where s.application_id=d.id and s.upload_id=u.id)))",
             (rs, n)
                 -> new Upload(rs.getObject(1, UUID.class),
                               rs.getObject(2, UUID.class), rs.getString(3),
                               rs.getString(4), rs.getString(5), rs.getLong(6),
                               rs.getString(7), rs.getTimestamp(8).toInstant(),
                               true),
-            id, app, actor)
+            id, app, actor, actor)
         .stream()
         .findFirst()
         .orElseThrow(()
