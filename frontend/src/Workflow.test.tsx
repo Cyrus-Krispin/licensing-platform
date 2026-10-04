@@ -15,6 +15,7 @@ vi.mock("./lib/api", async (importOriginal) => ({
   listCases: vi.fn(),
   notifications: vi.fn(),
   readNotification: vi.fn(),
+  clearNotifications: vi.fn(),
 }));
 const draft: api.Draft = {
   id: "case",
@@ -405,34 +406,17 @@ test("all statuses stay in the officer queue and filters preserve cases", async 
 });
 test("notifications persist and mark read through the API", async () => {
   const user = userEvent.setup();
-  vi.mocked(api.notifications)
-    .mockResolvedValueOnce([
-      {
-        id: "notice",
-        applicationId: "case",
-        message: "Under Review",
-        createdAt: "2026-10-04T00:00:00Z",
-        readAt: null,
-      },
-    ])
-    .mockResolvedValue([
-      {
-        id: "notice",
-        applicationId: "case",
-        message: "Under Review",
-        createdAt: "2026-10-04T00:00:00Z",
-        readAt: "2026-10-04T00:01:00Z",
-      },
-    ]);
+  const notice = { id: "notice", applicationId: "case", message: "Under Review", createdAt: "2026-10-04T00:00:00Z", readAt: null };
+  vi.mocked(api.notifications).mockResolvedValue([notice]);
   vi.mocked(api.readNotification).mockResolvedValue();
   render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  vi.mocked(api.notifications).mockResolvedValue([{ ...notice, readAt: "2026-10-04T00:01:00Z" }]);
   await user.click(await screen.findByRole("button", { name: "Mark as read" }));
   await screen.findByText("Notifications · 0 unread");
   expect(api.readNotification).toHaveBeenCalledWith("notice");
-  await user.click(
-    screen.getByRole("button", { name: "Refresh notifications" }),
-  );
-  expect(api.notifications).toHaveBeenCalledTimes(3);
+  await user.click(screen.getByRole("button", { name: "Refresh notifications" }));
+  expect(api.notifications).toHaveBeenCalledTimes(4);
 });
 test("read errors recover and stale actions require deliberate refresh", async () => {
   const user = userEvent.setup();
@@ -486,4 +470,29 @@ test("officer feedback links reach retained field and document summaries", async
   expect(document).toHaveAttribute("href", "#submitted-documentRequest.doc");
   expect(window.document.getElementById("submitted-legalName")).toHaveTextContent("Cafe");
   expect(window.document.getElementById("submitted-documentRequest.doc")).toHaveTextContent("registration.pdf");
+});
+
+
+test("failed notification clearing keeps messages available and reports the error", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.notifications).mockResolvedValue([{ id: "notice", applicationId: "case", message: "Action required", createdAt: "2026-10-04T00:00:00Z", readAt: null }]);
+  vi.mocked(api.clearNotifications).mockRejectedValue(new Error("Please retry"));
+  render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  await user.click(await screen.findByRole("button", { name: "Clear all" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Please retry");
+  expect(screen.getByText("Action required")).toBeVisible();
+});
+
+test("mark all as read targets only unread notifications", async () => {
+  const user = userEvent.setup();
+  const notice = { id: "unread", applicationId: "case", message: "Action required", createdAt: "2026-10-04T00:00:00Z", readAt: null };
+  const read = { ...notice, id: "read", readAt: "2026-10-04T00:01:00Z" };
+  vi.mocked(api.notifications).mockResolvedValue([notice, read]);
+  render(<Notifications />);
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  vi.mocked(api.notifications).mockResolvedValue([{ ...notice, readAt: read.readAt }, read]);
+  await user.click(await screen.findByRole("button", { name: "Mark all as read" }));
+  await screen.findByText("Notifications · 0 unread");
+  expect(api.readNotification).toHaveBeenCalledExactlyOnceWith("unread");
 });

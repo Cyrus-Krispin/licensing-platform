@@ -202,6 +202,7 @@ public class WorkflowService {
     private UUID uuid(Map<String,Object> body,String name) { try{return UUID.fromString(text(body,name,100));}catch(IllegalArgumentException e){bad(name+" must be a UUID");return null;} }
     private Timestamp now() { return Timestamp.from(Instant.now()); }
     private void notify(String recipient,UUID app,UUID event,String message) { db.update("insert into notification(id,recipient,application_id,event_id,message,created_at) values(?,?,?,?,?,?)",UUID.randomUUID(),recipient,app,event,message,now()); }
+    @Transactional public void clearNotifications(String actor) { db.update("delete from notification where recipient=?",actor); }
     public List<Notification> notifications(String actor) { return db.query("select id,application_id,message,created_at,read_at from notification where recipient=? order by created_at desc,id",(r,n)->new Notification(r.getObject(1,UUID.class),r.getObject(2,UUID.class),r.getString(3),r.getTimestamp(4).toInstant(),r.getTimestamp(5)==null?null:r.getTimestamp(5).toInstant()),actor); }
     @Transactional public void markRead(UUID id,String actor) { if(db.update("update notification set read_at=coalesce(read_at,?) where id=? and recipient=?",now(),id,actor)!=1) throw error(HttpStatus.NOT_FOUND,"not_found","Notification not found"); }
     private String json(Object value) { try{return mapper.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException("Unable to serialize workflow record",e);} }

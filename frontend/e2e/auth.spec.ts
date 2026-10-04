@@ -28,7 +28,7 @@ for (const account of [
     await expect(page.locator("main")).toHaveCSS("overflow-x", "visible");
     if (account.role === "operator") {
       const legalName = `L${Date.now()}`.padEnd(200, "L");
-      await page.getByRole("button", { name: "Create draft" }).click();
+      await page.getByRole("button", { name: "Create application" }).click();
       await page.getByLabel(/Legal name/).fill(legalName);
       await page.getByLabel(/Role/).selectOption("REPRESENTATIVE");
       await page.getByLabel(/Contact email/).fill("owner@example.test");
@@ -154,7 +154,7 @@ test("two tabs preserve different weekday edits through explicit conflict review
   await first.getByLabel("Username").fill("operator");
   await first.getByLabel("Password").fill("local-operator-password");
   await first.getByRole("button", { name: "Sign in" }).click();
-  await first.getByRole("button", { name: "Create draft" }).click();
+  await first.getByRole("button", { name: "Create application" }).click();
 
   const second = await context.newPage();
   await second.goto("/");

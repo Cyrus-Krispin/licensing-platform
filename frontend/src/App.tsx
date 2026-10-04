@@ -787,7 +787,7 @@ function OperatorDrafts() {
               ? "Creating…"
               : pendingCreateKey
                 ? "Retry create"
-                : "Create draft"}
+                : "Create application"}
           </Button>
         </div>
         <p role="status" className="text-sm text-muted-foreground">

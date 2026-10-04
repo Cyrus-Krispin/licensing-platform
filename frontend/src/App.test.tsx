@@ -21,6 +21,7 @@ vi.mock("./lib/api", () => ({
   getCase: vi.fn(),
   caseCommand: vi.fn(),
   readNotification: vi.fn(),
+  clearNotifications: vi.fn(),
 }));
 
 const workspace = {
@@ -102,16 +103,16 @@ test("opening submission focuses the workflow above the editor", async () => {
   await waitFor(() => expect(screen.getByRole("region", { name: "Application workflow" })).toHaveFocus());
 });
 
-test("workspace navigation preserves unsaved application edits", async () => {
+test("notification dropdown preserves unsaved application edits", async () => {
   vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
   vi.mocked(api.listDrafts).mockResolvedValue([premisesDraft()]);
   render(<App />);
   await userEvent.click(await screen.findByTitle("Cafe"));
   await userEvent.type(screen.getByLabelText("Trading name"), "Unsaved name");
-  await userEvent.click(screen.getByRole("tab", { name: /Notifications/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Notifications, 0 unread" }));
   expect(await screen.findByRole("heading", { name: /Notifications/ })).toBeVisible();
-  expect(screen.getByLabelText("Trading name")).not.toBeVisible();
-  await userEvent.click(screen.getByRole("tab", { name: "Applications" }));
+  expect(screen.getByLabelText("Trading name")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
   expect(screen.getByLabelText("Trading name")).toHaveValue("Unsaved name");
   expect(screen.getByLabelText("Trading name")).toBeVisible();
   expect(api.saveDraft).not.toHaveBeenCalled();
@@ -613,7 +614,7 @@ describe("authentication workspace", () => {
     });
     render(<App />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Create draft" }),
+      await screen.findByRole("button", { name: "Create application" }),
     );
     await userEvent.type(screen.getByLabelText(/Legal name/), "Cafe One");
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -834,7 +835,7 @@ describe("authentication workspace", () => {
       .mockResolvedValueOnce(draft);
     render(<App />);
 
-    const create = await screen.findByRole("button", { name: "Create draft" });
+    const create = await screen.findByRole("button", { name: "Create application" });
     await userEvent.click(create);
     expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Creating…" }));
@@ -1232,4 +1233,19 @@ test("simulated status polling preserves edits and unknown retry uses the same k
   expect(vi.mocked(api.retryProcessing).mock.calls[0]).toEqual(vi.mocked(api.retryProcessing).mock.calls[1]);
   expect(screen.getByLabelText(/Legal name/)).toHaveValue("Unsaved Cafe");
   expect(api.saveDraft).not.toHaveBeenCalled();
+});
+
+
+test("clearing notifications updates the bell without leaving the application", async () => {
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.notifications).mockResolvedValue([{ id: "notice", applicationId: "case", message: "Corrections requested", createdAt: "2026-10-04T00:00:00Z", readAt: null }]);
+  vi.mocked(api.clearNotifications).mockResolvedValue();
+  render(<App />);
+  await userEvent.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+  vi.mocked(api.notifications).mockResolvedValue([]);
+  await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
+  expect(api.clearNotifications).toHaveBeenCalledOnce();
+  expect(await screen.findByRole("button", { name: "Notifications, 0 unread" })).toBeVisible();
+  expect(screen.queryByText("Corrections requested")).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Notifications" })).not.toBeInTheDocument();
 });

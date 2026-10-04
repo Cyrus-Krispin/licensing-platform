@@ -1,9 +1,8 @@
-import { useState, type ReactNode } from "react";
-import { Bell, Files, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { type ReactNode } from "react";
+import { Files, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Notifications } from "@/Workflow";
+import { Notifications } from "@/Notifications";
 import type { User } from "@/lib/api";
 
 export function WorkspaceShell({
@@ -31,8 +30,6 @@ export function WorkspaceShell({
   onSignOut: () => void;
   children: ReactNode;
 }) {
-  const [view, setView] = useState("applications");
-  const [unread, setUnread] = useState(0);
   return (
     <div className="min-h-svh bg-background">
       <a
@@ -51,19 +48,7 @@ export function WorkspaceShell({
             </Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              aria-label={`Notifications, ${unread} unread`}
-              onClick={() => setView("notifications")}
-            >
-              <Bell data-icon="inline-start" aria-hidden="true" />
-              {unread > 0 && (
-                <Badge variant="info">
-                  {unread}
-                  <span className="sr-only"> new</span>
-                </Badge>
-              )}
-            </Button>
+            <Notifications />
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={<Button variant="ghost" aria-label="Profile menu" />}
@@ -108,31 +93,17 @@ export function WorkspaceShell({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <Tabs value={view} onValueChange={(value) => setView(String(value))}>
-          <TabsList
-            variant="line"
-            aria-label="Workspace navigation"
-            className="mb-8"
+        <nav aria-label="Workspace navigation" className="mb-8">
+          <a
+            href="#workspace-content"
+            className="inline-flex items-center gap-2 border-b-2 py-2 text-sm font-medium"
+            aria-current="page"
           >
-            <TabsTrigger value="applications">
-              <Files data-icon="inline-start" />
-              {user.role === "OPERATOR" ? "Applications" : "Review queue"}
-            </TabsTrigger>
-            <TabsTrigger value="notifications">
-              <Bell data-icon="inline-start" />
-              Notifications
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="applications" keepMounted>
-            {children}
-          </TabsContent>
-          <TabsContent value="notifications" keepMounted>
-            <Notifications
-              onUnreadChange={setUnread}
-              active={view === "notifications"}
-            />
-          </TabsContent>
-        </Tabs>
+            <Files className="size-4" aria-hidden="true" />
+            {user.role === "OPERATOR" ? "Applications" : "Review queue"}
+          </a>
+        </nav>
+        {children}
       </main>
     </div>
   );

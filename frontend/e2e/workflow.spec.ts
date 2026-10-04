@@ -40,7 +40,7 @@ test("operator and officer complete targeted corrections, retained versions and 
   officer.setDefaultTimeout(15000);
   const name = `Workflow Cafe ${Date.now()}`;
   await login(operator, "operator");
-  await operator.getByRole("button", { name: "Create draft" }).click();
+  await operator.getByRole("button", { name: "Create application" }).click();
   await operator.getByLabel(/Legal name/).fill(name);
   await operator.getByLabel(/Registration number/).fill("202612345A");
   await operator.getByLabel(/Business structure/).selectOption("COMPANY");
@@ -209,11 +209,11 @@ test("operator and officer complete targeted corrections, retained versions and 
   await expect(
     operator.getByRole("heading", { name: "Approved · Version 2" }),
   ).toBeVisible();
-  await operator.getByRole("tab", { name: "Notifications", exact: true }).click();
+  await operator.getByRole("button", { name: /^Notifications, .* unread$/ }).click();
   await operator.getByRole("button", { name: "Refresh notifications" }).click();
   await expect(
     operator
-      .getByRole("region", { name: "Notifications" })
+      .getByRole("dialog", { name: /^Notifications/ })
       .getByText(/approved/i).first(),
   ).toBeVisible();
   await officer.screenshot({

@@ -114,13 +114,13 @@ At the baseline audit stage, application code and workflow rules were unchanged.
 
 ## Implemented UI update
 
-The approved follow-up replaces the enclosing signed-in Card with a black page and a wider workspace. A sticky header contains identity, a profile dropdown with sign-out, and a notification bell with unread count. Applications/review queue and notifications have separate tab views. Keeping both panels mounted preserves unsaved editor values when switching tabs. Counts refresh on workspace/view changes and explicit refresh/read actions; this does not add push notifications.
+The approved follow-up replaces the enclosing signed-in Card with a black page and a wider workspace. A sticky header contains identity, a profile dropdown with sign-out, and a notification bell with unread count. Applications/review queue remain on the page. The notification bell opens a dropdown with refresh, individual/all read actions, and Clear all. Opening or closing it keeps the editor mounted and preserves unsaved values. Counts refresh on opening and explicit refresh/read/clear actions; this does not add push notifications.
 
 Application fields, opening-hour inputs, evidence, and submitted summary rows stack vertically on desktop and mobile. Section anchors provide local navigation; save controls and saved completion appear near the top. Required field labels show an amber `*` and one shared explanation, while screen readers retain the requirement text. Status, evidence applicability, correction state, and new notifications use semantic coloured shadcn Badges. Longer explanations use official Textarea controls. Opening submission moves focus to the workflow; officer feedback links now resolve to retained summary rows.
 
-The baseline findings remain an audit trail, not a claim that this PR resolves every issue. Historical-version action safeguards, final-decision confirmation, unsaved exit confirmation for All drafts, URL routing, search/pagination, technical history copy, and dependent-target guidance remain follow-up work. No server permissions, fixed-round boundaries, completeness rules, or API behavior changed. Official shadcn Base UI components were added through its CLI; no framework or component-library migration was introduced.
+The baseline findings remain an audit trail, not a claim that this PR resolves every issue. Historical-version action safeguards, final-decision confirmation, unsaved exit confirmation for All drafts, URL routing, search/pagination, technical history copy, and dependent-target guidance remain follow-up work. Server permissions, fixed-round boundaries and completeness rules remain unchanged. Clearing notifications adds the recipient-scoped API described below. Official shadcn Base UI components were added through its CLI; no framework or component-library migration was introduced.
 
-### Final validation
+### First UI implementation validation
 
 - Frontend lint, typecheck, coverage, and production build: passed, 53 tests. Five Fast Refresh warnings (three existing and two generated component-export warnings); no lint errors.
 - Backend verification: passed, 54 tests with nine skips; coverage gate passed. Backend sources were unchanged.
@@ -130,12 +130,14 @@ The baseline findings remain an audit trail, not a claim that this PR resolves e
 - Chromium end-to-end: all four tests passed, including keyboard authentication/sign-out, evidence upload and retained edits, two-tab conflict recovery, and a complete targeted correction/resubmission/resolution/approval flow. Sampled browser warnings/errors were empty.
 - Markdown links and whitespace checks: passed.
 
-### Verified screenshots
+### Notification dropdown and application naming follow-up
 
-Desktop officer workspace:
+The user requested notifications under the bell rather than a separate page tab, plus the action name **Create application**. The application still begins in DRAFT status; submission rules are unchanged. A focused Notifications component uses the official shadcn Popover, including an accessible title, bounded scrolling, responsive positioning and keyboard dismissal. Bulk actions disable during requests and errors retain the messages for retry.
 
-![Officer workspace with full-page black background, navigation, account menu, notification count, and coloured status labels](ui-review/officer-workspace.png)
+`DELETE /api/notifications` clears only the authenticated recipient's notifications. It leaves applications, immutable submissions, uploads and workflow events intact, and is safe to retry. Existing session authentication and CSRF protection apply. Backend tests verify recipient isolation, preserved history, idempotence, authentication and CSRF. Frontend tests verify clearing, failure recovery, unread-only bulk reads, preserved local edits and API request headers.
 
-Mobile operator workspace:
+Latest validation: 57 frontend tests, lint/typecheck/coverage/build passed; backend verification passed with 56 tests and nine skips. Four Fast Refresh warnings, no lint errors. Compose services are healthy on 8081. A dedicated Chromium test passed with mocked API data at desktop and 320px mobile widths; it verified dropdown/read/clear behavior and focus return without creating applications in the local database. The four live workflow browser tests were run for the first UI implementation above. Markdown and whitespace checks passed.
 
-![Operator workspace with section navigation and visible save and required-field guidance](ui-review/operator-workspace.png)
+Verified desktop dropdown (isolated test notifications):
+
+![Notification dropdown with unread label, read and clear controls, and Create application action](ui-review/notification-dropdown.png)
