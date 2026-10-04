@@ -896,10 +896,13 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           </h3>
           <p className="text-sm text-muted-foreground">
             Progress reflects the last saved revision, including ready evidence
-            files.
+            files. The total includes two declarations confirmed at submission.
+          </p>
+          <p className="text-sm font-medium">
+            {(draft.completion?.unmetItemIds ?? []).filter((id) => !id.startsWith("declaration.")).length} required details or files remain.
           </p>
           <ul className="list-inside list-disc text-sm">
-            {(draft.completion?.unmetItemIds ?? []).map((id) => (
+            {(draft.completion?.unmetItemIds ?? []).filter((id) => !id.startsWith("declaration.")).map((id) => (
               <li key={id}>
                 <a
                   className="underline"
@@ -911,6 +914,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
               </li>
             ))}
           </ul>
+          <p className="text-sm text-muted-foreground">Confirm accuracy and authority in Review and submit. These declarations are not missing draft fields.</p>
         </section>
         <fieldset id="application-business" tabIndex={-1} className="flex scroll-mt-36 flex-col gap-5 border-t pt-6">
           <legend className="mb-3 text-lg font-semibold">Business</legend>
@@ -995,7 +999,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
           {input("premisesName", "Premises name")}
           <div className="space-y-2">
             <Label htmlFor="unitApplicable">
-              Does the premises have a unit number?
+              Does the premises have a unit number? <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
             </Label>
             <NativeSelect
               id="unitApplicable"
@@ -1106,7 +1110,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
               }
             >
               <legend className="mb-2 text-sm font-medium">
-                Preparation activities (choose at least one)
+                Preparation activities (choose at least one) <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </legend>
               {activities.map((value) => (
                 <div key={value} className="flex items-center gap-2 py-1">
@@ -1144,7 +1148,7 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
               }
             >
               <legend className="mb-2 text-sm font-medium">
-                Service modes (choose at least one)
+                Service modes (choose at least one) <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span>
               </legend>
               {modes.map((value) => (
                 <div key={value} className="flex items-center gap-2 py-1">
@@ -1172,7 +1176,8 @@ function OperatorDrafts({ navigationRequest }: { navigationRequest: number }) {
             </fieldset>
           </div>
           <fieldset className="space-y-3">
-            <legend className="font-medium">Opening hours</legend>
+            <legend className="font-medium">Opening hours <span aria-hidden="true" className="text-status-warning">*</span><span className="sr-only"> (required to submit)</span></legend>
+            <p className="text-sm text-muted-foreground">Choose Open or Closed for every day. Closed days count as complete; Not set is an unanswered required item.</p>
             {days.map((day) => (
               <DayHoursFields
                 key={day}

@@ -1295,3 +1295,17 @@ test("selected evidence survives saving fields and uploads using the saved revis
   await screen.findByText(/Saved revision 4/);
   expect(screen.getByRole("link", { name: "Open saved lease.png" })).toBeVisible();
 });
+
+test("completion distinguishes required draft items from submission declarations", async () => {
+  const draft = premisesDraft({ completion: { completed: 13, required: 27, percentage: 48, unmetItemIds: ["unitApplicable", ...["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].map((day) => `operatingHours.${day}`), "documentRequest.registration", "documentRequest.permission", "documentRequest.ownership", "documentRequest.layout", "declaration.accuracy", "declaration.authority"] } });
+  vi.mocked(api.me).mockResolvedValue({ username: "operator", role: "OPERATOR" });
+  vi.mocked(api.listDrafts).mockResolvedValue([draft]);
+  render(<App />);
+  await userEvent.click(await screen.findByTitle("Cafe"));
+  const completion = screen.getByRole("region", { name: /Saved completion/ });
+  expect(completion).toHaveTextContent("12 required details or files remain.");
+  expect(within(completion).getAllByRole("link")).toHaveLength(12);
+  expect(completion).toHaveTextContent("two declarations confirmed at submission");
+  expect((screen.getByLabelText(/Does the premises have a unit number/) as HTMLSelectElement).labels?.[0]).toHaveTextContent("*");
+  expect(screen.getByRole("group", { name: /Opening hours/ })).toHaveTextContent("Choose Open or Closed for every day");
+});

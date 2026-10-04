@@ -156,3 +156,9 @@ Latest verification: 61 frontend tests and lint/typecheck/coverage/build passed;
 Verified saved evidence (isolated test application):
 
 ![Saved filename remains visible after saving the draft, with an explained replacement control](ui-review/saved-evidence.png)
+
+### Required-item clarity follow-up
+
+Inspection of the current saved draft found 12 outstanding draft requirements: the premises unit-applicability Yes/No choice, seven Open/Closed day choices, and four applicable evidence files. The backend correctly excludes optional fields and non-applicable evidence. The interface omitted required markers for the unit question and opening-hour/selection groups, making those requirements look optional. Required markers and explicit daily-hours guidance now align with the existing rules. Completion distinguishes outstanding details/files from the two fresh submission declarations; totals continue to use server-provided completion. No saved draft was edited.
+
+Validation: 62 frontend tests and lint/typecheck/coverage/build passed; backend verification passed with 56 tests and nine skips; two isolated Chromium tests passed. Compose is healthy on 8081, and Markdown links/whitespace checks passed.
