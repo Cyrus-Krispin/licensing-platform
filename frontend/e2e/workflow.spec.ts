@@ -199,6 +199,7 @@ test("operator and officer complete targeted corrections, retained versions and 
     .getByLabel("Decision explanation (required)")
     .fill("Complete documentary review");
   await officer.getByRole("button", { name: "Submit review result" }).click();
+  await officer.getByRole("button", { name: "Confirm approval" }).click();
   await expect(
     officer.getByRole("heading", { name: "Approved · Version 2" }),
   ).toBeVisible();

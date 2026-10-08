@@ -9,6 +9,16 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/StatusBadge";
 import { Textarea } from "@/components/ui/textarea";
@@ -314,6 +324,10 @@ export function CasePanel({
   const [authority, setAuthority] = useState(false);
   const [message, setMessage] = useState("");
   const [outcome, setOutcome] = useState("APPROVED");
+  const [pendingFinalDecision, setPendingFinalDecision] = useState<{
+    outcome: "APPROVED" | "REJECTED";
+    explanation: FormDataEntryValue | null;
+  } | null>(null);
   const inFlight = useRef(false);
   const loadGeneration = useRef(0);
   const onDetailRef = useRef(onDetail);
@@ -541,6 +555,44 @@ export function CasePanel({
   ) : saveAction;
   return (
     <section id="application-workflow" tabIndex={-1} className="scroll-mt-36 space-y-6" aria-label="Application workflow">
+      <AlertDialog
+        open={pendingFinalDecision !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingFinalDecision(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Confirm {pendingFinalDecision?.outcome === "APPROVED" ? "approval" : "rejection"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This records a final decision and ends the application review.
+              <span className="mt-3 block font-medium text-foreground">
+                Result: {pendingFinalDecision?.outcome === "APPROVED" ? "Approve" : "Reject"}
+              </span>
+              <span className="mt-1 block break-words">
+                Explanation: {pendingFinalDecision?.explanation?.toString()}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              variant={pendingFinalDecision?.outcome === "REJECTED" ? "destructive" : "default"}
+              disabled={disabled}
+              onClick={() => {
+                if (!pendingFinalDecision) return;
+                const decision = pendingFinalDecision;
+                setPendingFinalDecision(null);
+                void command("decision", decision);
+              }}
+            >
+              Confirm {pendingFinalDecision?.outcome === "APPROVED" ? "approval" : "rejection"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
           <StatusBadge status={detail.status}>{statusLabel(detail.status, role)}</StatusBadge> <span className="ml-2 text-sm text-muted-foreground">{detail.status === "DRAFT" ? `Saved revision ${detail.revision}` : `· Version ${detail.latestVersion}`}</span>
@@ -618,7 +670,14 @@ export function CasePanel({
           <form className="space-y-3" onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            void command(outcome === "CORRECTIONS" ? "publish-corrections" : "decision", outcome === "CORRECTIONS" ? {} : { outcome, explanation: data.get("explanation") });
+            if (outcome === "CORRECTIONS") {
+              void command("publish-corrections", {});
+              return;
+            }
+            setPendingFinalDecision({
+              outcome: outcome as "APPROVED" | "REJECTED",
+              explanation: data.get("explanation"),
+            });
           }}>
             <Label htmlFor="outcome">Review result</Label>
             <NativeSelect id="outcome" name="outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)}>

@@ -360,6 +360,22 @@ test("officer creates additional evidence, deletes drafts, and records reasoned 
   await user.click(
     screen.getByRole("button", { name: "Submit review result" }),
   );
+  expect(api.caseCommand).not.toHaveBeenCalledWith(
+    detail,
+    "decision",
+    expect.anything(),
+    expect.any(String),
+  );
+  expect(screen.getByRole("alertdialog")).toHaveTextContent(
+    "This records a final decision and ends the application review.",
+  );
+  expect(screen.getByRole("alertdialog")).toHaveTextContent(
+    "Result: Reject",
+  );
+  expect(screen.getByRole("alertdialog")).toHaveTextContent(
+    "Explanation: Insufficient evidence",
+  );
+  await user.click(screen.getByRole("button", { name: "Confirm rejection" }));
   await waitFor(() =>
     expect(api.caseCommand).toHaveBeenLastCalledWith(
       detail,
@@ -454,6 +470,7 @@ test("a stale officer cannot approve a newer unseen submission without refreshin
   render(<CasePanel id="case" role="OFFICER"/>);
   await user.type(await screen.findByLabelText("Decision explanation (required)"),"Document review completed");
   await user.click(screen.getByRole("button",{name:"Submit review result"}));
+  await user.click(screen.getByRole("button",{name:"Confirm approval"}));
   await screen.findByText("The saved case changed. Refresh and review the current submission before acting.");
   expect(api.caseCommand).not.toHaveBeenCalled();
   expect(screen.getByRole("heading", { name: "Under Review · Version 1" })).toBeVisible();
@@ -461,6 +478,7 @@ test("a stale officer cannot approve a newer unseen submission without refreshin
   await user.click(screen.getByRole("button",{name:"Refresh case history"}));
   await screen.findByRole("heading", { name: "Under Review · Version 2" });
   await user.click(screen.getByRole("button",{name:"Submit review result"}));
+  await user.click(screen.getByRole("button",{name:"Confirm approval"}));
   await waitFor(()=>expect(api.caseCommand).toHaveBeenCalledWith(newer,"decision",{outcome:"APPROVED",explanation:"Document review completed"},expect.any(String)));
 });
 
