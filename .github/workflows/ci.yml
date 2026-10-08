@@ -130,11 +130,14 @@ jobs:
           java_packages=$(jq '[.Results[]?.Packages[]? | select(.Identifier.PURL? | startswith("pkg:maven/"))] | length' "$report")
           test "$java_packages" -gt 0 || { echo "Trivy found no Java packages in the packaged JAR" >&2; exit 1; }
           for package in \
-            'pkg:maven/org.springframework.boot/spring-boot-actuator@3.5.16' \
-            'pkg:maven/org.postgresql/postgresql@42.7.12' \
+            'pkg:maven/org.springframework/spring-webmvc@7.0.9' \
+            'pkg:maven/org.springframework.boot/spring-boot-actuator@4.0.8' \
+            'pkg:maven/org.postgresql/postgresql@42.7.13' \
             'pkg:maven/com.fasterxml.jackson.core/jackson-core@2.21.7' \
+            'pkg:maven/tools.jackson.core/jackson-core@3.1.7' \
+            'pkg:maven/tools.jackson.core/jackson-databind@3.1.7' \
             'pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.7' \
-            'pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.59'; do
+            'pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@11.0.26'; do
             jq --exit-status --arg package "$package" \
               'any(.Results[]?.Packages[]?; .Identifier.PURL? == $package)' "$report" >/dev/null || {
                 echo "Expected packaged dependency is missing: $package" >&2
